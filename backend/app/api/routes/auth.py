@@ -42,7 +42,7 @@ async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depen
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    response.set_cookie("access_token", access_token, httponly=True, samesite="lax", secure=settings.FRONTEND_URL.startswith("https"), max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+    response.set_cookie("access_token", access_token, httponly=True, samesite="none", secure=settings.FRONTEND_URL.startswith("https"), max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
     return {"access_token": access_token, "token_type": "bearer"}
 
 import httpx
@@ -53,7 +53,7 @@ async def github_login():
     state = secrets.token_urlsafe(32)
     oauth_states[state] = __import__("time").time() + settings.GITHUB_OAUTH_STATE_TTL_SECONDS
     response = RedirectResponse(f"https://github.com/login/oauth/authorize?client_id={settings.GITHUB_CLIENT_ID}&scope=repo%20user&state={state}")
-    response.set_cookie("github_oauth_state", state, httponly=True, samesite="lax", secure=settings.FRONTEND_URL.startswith("https"), max_age=settings.GITHUB_OAUTH_STATE_TTL_SECONDS)
+    response.set_cookie("github_oauth_state", state, httponly=True, samesite="none", secure=settings.FRONTEND_URL.startswith("https"), max_age=settings.GITHUB_OAUTH_STATE_TTL_SECONDS)
     return response
 
 @router.get("/github/callback")
@@ -113,7 +113,7 @@ async def github_callback(code: str, state: str, request: Request, db: AsyncSess
         )
         
         response = RedirectResponse(f"{settings.FRONTEND_URL}/dashboard")
-        response.set_cookie("access_token", jwt_token, httponly=True, samesite="lax", secure=settings.FRONTEND_URL.startswith("https"), max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+        response.set_cookie("access_token", jwt_token, httponly=True, samesite="none", secure=settings.FRONTEND_URL.startswith("https"), max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
         response.delete_cookie("github_oauth_state")
         return response
     except httpx.HTTPError:
