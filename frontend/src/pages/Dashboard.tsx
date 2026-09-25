@@ -1,6 +1,6 @@
 import { API_URL } from '../config';
 import { useEffect, useState } from 'react';
-import { GitCommit, ArrowUpRight } from 'lucide-react';
+import { GitCommit } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import axios from 'axios';
 

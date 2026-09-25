@@ -3,6 +3,7 @@ import { GitCommit, ArrowUpRight, ArrowDownRight, FileText, AlertTriangle, Shiel
 
 export default function CommitAudit() {
   const { id } = useParams();
+  void id;
 
   const commitData = {
     sha: "a1b2c3d4",
