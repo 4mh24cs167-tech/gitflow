@@ -90,18 +90,52 @@ export default function Dashboard() {
             <div className="p-6 text-center text-slate-500">No repositories connected. Go to Onboarding.</div>
           ) : (
             repos.map((repo: any) => (
-              <div key={repo.id} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group">
-                <div className="flex items-center space-x-4">
-                  <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                    <GitCommit className="w-5 h-5 text-slate-500" />
+              <div key={repo.id} className="px-6 py-6 flex flex-col space-y-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                      <GitCommit className="w-5 h-5 text-slate-500" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-lg cursor-pointer hover:text-brand-500 transition-colors" onClick={() => window.location.href=`/repositories/${repo.id}`}>{repo.name}</h4>
+                      <p className="text-sm text-slate-500">{repo.url}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="font-medium">{repo.name}</h4>
-                    <p className="text-sm text-slate-500">{repo.url}</p>
+                  <div className="flex items-center space-x-4">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await axios.post(`${API_URL}/repositories/${repo.id}/scan`, { commit_sha: "HEAD" }, { withCredentials: true });
+                          alert('Scan initiated for HEAD');
+                        } catch (err) {
+                          console.error(err);
+                          alert('Failed to initiate scan');
+                        }
+                      }}
+                      className="px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-medium rounded-lg hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
+                    >
+                      Manual Scan Now
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center space-x-8">
-                  <ArrowUpRight className="w-5 h-5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-border-light dark:border-border-dark">
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Monitoring Status</p>
+                    <p className="font-medium text-emerald-600 dark:text-emerald-400 flex items-center"><span className="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span> Active</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Current Risk Score</p>
+                    <p className="font-medium">{history.length > 0 ? history[history.length - 1].score : 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Latest Commit</p>
+                    <p className="font-medium truncate max-w-[120px]">{history.length > 0 ? history[history.length - 1].commit : 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Open Findings</p>
+                    <p className="font-medium">N/A</p>
+                  </div>
                 </div>
               </div>
             ))

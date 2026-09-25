@@ -51,6 +51,7 @@ class Scan(Base):
     error_message = Column(String, nullable=True)
     findings = relationship("Finding", back_populates="scan", cascade="all, delete-orphan")
     risk_score = relationship("RiskScore", back_populates="scan", uselist=False, cascade="all, delete-orphan")
+    commit_analysis = relationship("CommitAnalysis", back_populates="scan", uselist=False, cascade="all, delete-orphan")
 
 class Finding(Base):
     __tablename__ = "findings"
@@ -77,3 +78,31 @@ class RiskScore(Base):
     details = Column(Text)
 
     scan = relationship("Scan", back_populates="risk_score")
+
+class WebhookDelivery(Base):
+    __tablename__ = 'webhook_deliveries'
+
+    id = Column(Integer, primary_key=True, index=True)
+    repository_id = Column(Integer, ForeignKey('repositories.id', ondelete='CASCADE'), nullable=False)
+    event_type = Column(String, nullable=False)
+    delivery_id = Column(String, index=True)
+    status = Column(String, nullable=False)
+    payload_sha = Column(String)
+    error_message = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    repository = relationship('Repository')
+
+  
+
+class CommitAnalysis(Base):
+    __tablename__ = 'commit_analyses'
+
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(Integer, ForeignKey('scans.id', ondelete='CASCADE'), unique=True, nullable=False)
+    changed_files = Column(Text)
+    structural_changes = Column(Text)
+    dependency_graph = Column(Text)
+    impact_analysis = Column(Text)
+
+    scan = relationship('Scan', back_populates='commit_analysis')

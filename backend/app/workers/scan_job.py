@@ -73,8 +73,32 @@ async def run_scan(scan_id: int):
             subprocess.run(["git", "-C", temp_dir, "checkout", "--detach", commit.hash], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
             checked_out = subprocess.run(["git", "-C", temp_dir, "rev-parse", "HEAD"], check=True, capture_output=True, text=True, timeout=10, env=env).stdout.strip().lower()
             if checked_out != commit.hash: raise RuntimeError("checked out revision did not match requested SHA")
+            
+            # 1. Standard Universal Scan
             raw_findings = UniversalScanner(temp_dir).scan()
+            
+            # 2. Structural & Impact Analysis
+            from app.analysis.impact import analyze_commit_changes, analyze_structural_changes, build_dependency_graph, analyze_impact
+            from app.database.models import CommitAnalysis
+            
+            changed_files_data = analyze_commit_changes(temp_dir, commit.hash)
+            structural_changes_data = analyze_structural_changes(temp_dir, commit.hash)
+            dep_graph = build_dependency_graph(temp_dir)
+            changed_file_paths = [cf['file_path'] for cf in changed_files_data if cf['status'] in ('ADDED', 'MODIFIED', 'RENAMED')]
+            impact_data = analyze_impact(changed_file_paths, dep_graph)
+            
+            db.add(CommitAnalysis(
+                scan_id=scan.id,
+                changed_files=json.dumps(changed_files_data),
+                structural_changes=json.dumps(structural_changes_data),
+                dependency_graph=json.dumps(dep_graph),
+                impact_analysis=json.dumps(impact_data)
+            ))
+            
+            # 3. Calculate Risk
             score_breakdown = calculate_risk_score(raw_findings)
+            # You could inject impact_data into risk score calculation here if desired.
+            
             previous = (await db.execute(select(Scan).join(Scan.commit).where(Commit.repository_id == repo.id, Scan.status == "COMPLETED", Scan.id != scan.id).order_by(Scan.completed_at.desc()).limit(1))).scalars().first()
             previous_score = await previous_completed_score(db, repo.id, scan.id)
             previous_findings = [] if not previous else list((await db.execute(select(Finding).where(Finding.scan_id == previous.id, Finding.status != "RESOLVED"))).scalars())

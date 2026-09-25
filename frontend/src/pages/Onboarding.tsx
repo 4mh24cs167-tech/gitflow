@@ -44,7 +44,7 @@ export default function Onboarding() {
 
   const handleSelect = async (repo: any) => {
     setStep(3);
-    setScanning(false);
+    setScanning(true);
     
     try {
       // 1. Create repo in DB
@@ -55,12 +55,14 @@ export default function Onboarding() {
         withCredentials: true
       });
       
-      void createRes.data;
+      const repository_id = createRes.data.id;
       
-      // Initial scans are only started from an immutable Git SHA, never a moving branch name.
-      setScanning(false);
+      // 2. Trigger initial scan
+      await axios.post(`${API_URL}/repositories/${repository_id}/scan`, { commit_sha: "HEAD" }, { withCredentials: true });
+      
     } catch(e) {
       console.error("Failed to connect repo and scan", e);
+      setScanning(false);
     }
   };
 
