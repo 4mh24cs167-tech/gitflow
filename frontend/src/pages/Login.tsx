@@ -17,7 +17,7 @@ export default function Login() {
       formData.append('username', username);
       formData.append('password', password);
       
-      const res = await axios.post(${API_URL}/auth/login, formData);
+      const res = await axios.post(`${API_URL}/auth/login`, formData);
       localStorage.setItem('access_token', res.data.access_token);
       navigate('/dashboard');
     } catch (err: any) {
@@ -38,7 +38,7 @@ export default function Login() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Sign in to your account to continue</p>
         </div>
 
-        <a href={${API_URL}/auth/github/login} className="w-full mb-6 flex items-center justify-center px-4 py-2.5 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-medium text-sm">
+        <a href={`${API_URL}/auth/github/login`} className="w-full mb-6 flex items-center justify-center px-4 py-2.5 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-medium text-sm">
           <GitBranch className="w-5 h-5 mr-2" />
           Continue with GitHub
         </a>
@@ -77,7 +77,7 @@ export default function Login() {
               value={password}
               onChange={(e: any) => setPassword(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition-shadow"
-              placeholder="••••••••"
+              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
             />
           </div>
           <button type="submit" className="w-full py-2.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-medium transition-colors mt-2 shadow-lg shadow-brand-500/25">
