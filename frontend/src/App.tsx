@@ -15,11 +15,15 @@ const CommitAudit = React.lazy(() => import('./pages/CommitAudit'));
 function TokenExtractor() {
   const location = useLocation();
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const token = params.get('token');
-    if (token) {
-      localStorage.setItem('access_token', token);
-      window.history.replaceState({}, document.title, location.pathname);
+    const hash = window.location.hash;
+    if (hash.includes('token=')) {
+      const params = new URLSearchParams(hash.substring(1));
+      const token = params.get('token');
+      if (token) {
+        localStorage.setItem('access_token', token);
+        // Remove token from visible URL without triggering reload
+        window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+      }
     }
   }, [location]);
   return null;

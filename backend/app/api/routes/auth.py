@@ -112,7 +112,7 @@ async def github_callback(code: str, state: str, request: Request, db: AsyncSess
             data={"sub": user.username}, expires_delta=jwt_expires
         )
         
-        response = RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?token={jwt_token}")
+        response = RedirectResponse(f"{settings.FRONTEND_URL}/dashboard#token={jwt_token}")
         response.delete_cookie("github_oauth_state")
         return response
     except httpx.HTTPError:

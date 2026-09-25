@@ -131,14 +131,14 @@ def analyze_impact(changed_files: List[str], reverse_dependency_graph: Dict[str,
         affected = list(set(affected))
         
         for aff in affected:
-            severity = "LOW"
+            review_priority = "LOW"
             if 'auth' in aff.lower() or 'security' in aff.lower():
-                severity = "HIGH"
+                review_priority = "HIGH"
             elif 'shared' in aff.lower() or 'common' in aff.lower() or 'utils' in aff.lower():
-                severity = "MEDIUM"
+                review_priority = "MEDIUM"
                 
             if aff not in impact:
                 impact[aff] = []
-            impact[aff].append({"changed_file": cf, "severity": severity, "category": "POTENTIALLY AFFECTED"})
+            impact[aff].append({"changed_file": cf, "review_priority": review_priority, "category": "POTENTIALLY AFFECTED"})
             
     return impact
