@@ -1,7 +1,8 @@
-import React, { Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import Layout from './components/Layout';
+import './config'; // Ensures axios interceptor is loaded
 
 const Landing = React.lazy(() => import('./pages/Landing'));
 const Login = React.lazy(() => import('./pages/Login'));
@@ -11,10 +12,24 @@ const Onboarding = React.lazy(() => import('./pages/Onboarding'));
 const RiskPassport = React.lazy(() => import('./pages/RiskPassport'));
 const CommitAudit = React.lazy(() => import('./pages/CommitAudit'));
 
+function TokenExtractor() {
+  const location = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token');
+    if (token) {
+      localStorage.setItem('access_token', token);
+      window.history.replaceState({}, document.title, location.pathname);
+    }
+  }, [location]);
+  return null;
+}
+
 function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
+        <TokenExtractor />
         <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">Loading...</div>}>
           <Routes>
             <Route path="/" element={<Landing />} />
