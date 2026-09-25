@@ -12,6 +12,10 @@ from app.auth.security import decrypt_token
 from app.database.session import get_db
 from app.schemas.repository import RepositoryCreate, RepositoryResponse
 from app.workers.scan_job import run_scan
+from pydantic import BaseModel
+
+class ScanRequest(BaseModel):
+    commit_sha: str
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -118,9 +122,9 @@ async def list_github_repositories(current_user: User = Depends(get_current_user
     return [{"id": r["id"], "name": r["full_name"], "url": r["clone_url"], "language": r.get("language")} for r in response.json()]
 
 @router.post("/{repository_id}/scan")
-async def trigger_manual_scan(repository_id: int, commit_sha: str, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def trigger_manual_scan(repository_id: int, request: ScanRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     await owned_repository(repository_id, current_user, db)
-    scan, created = await queue_scan(repository_id, commit_sha, current_user, db)
+    scan, created = await queue_scan(repository_id, request.commit_sha, current_user, db)
     if created: background_tasks.add_task(run_scan, scan.id)
     return {"scan_id": scan.id, "status": scan.status, "queued": created}
 
