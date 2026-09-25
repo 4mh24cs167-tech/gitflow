@@ -1,14 +1,35 @@
 import { API_URL } from '../config';
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Shield, GitBranch } from 'lucide-react';
+import axios from 'axios';
 
 export default function Register() {
   const navigate = useNavigate();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate('/dashboard');
+    try {
+      await axios.post(`${API_URL}/auth/register`, {
+        username: name,
+        email: email,
+        password: password
+      });
+      
+      const formData = new URLSearchParams();
+      formData.append('username', name);
+      formData.append('password', password);
+      
+      const loginRes = await axios.post(`${API_URL}/auth/login`, formData);
+      localStorage.setItem('access_token', loginRes.data.access_token);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Registration failed');
+    }
   };
 
   return (
@@ -37,12 +58,17 @@ export default function Register() {
             <span className="px-2 bg-surface-light dark:bg-surface-dark text-slate-500">Or sign up with email</span>
           </div>
         </div>
+        
+        {error && <div className="mb-4 text-red-500 text-sm text-center">{error}</div>}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1.5 text-slate-700 dark:text-slate-300">Name</label>
             <input 
               type="text" 
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition-shadow"
               placeholder="Jane Doe"
             />
@@ -51,6 +77,9 @@ export default function Register() {
             <label className="block text-sm font-medium mb-1.5 text-slate-700 dark:text-slate-300">Email</label>
             <input 
               type="email" 
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition-shadow"
               placeholder="you@example.com"
             />
@@ -59,6 +88,9 @@ export default function Register() {
             <label className="block text-sm font-medium mb-1.5 text-slate-700 dark:text-slate-300">Password</label>
             <input 
               type="password" 
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition-shadow"
               placeholder="••••••••"
             />

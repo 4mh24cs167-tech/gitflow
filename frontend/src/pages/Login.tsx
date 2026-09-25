@@ -1,14 +1,28 @@
 import { API_URL } from '../config';
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Shield, GitBranch } from 'lucide-react';
+import axios from 'axios';
 
 export default function Login() {
   const navigate = useNavigate();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate('/dashboard');
+    try {
+      const formData = new URLSearchParams();
+      formData.append('username', username);
+      formData.append('password', password);
+      
+      const res = await axios.post(${API_URL}/auth/login, formData);
+      localStorage.setItem('access_token', res.data.access_token);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Login failed');
+    }
   };
 
   return (
@@ -24,7 +38,7 @@ export default function Login() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Sign in to your account to continue</p>
         </div>
 
-        <a href={`${API_URL}/auth/github/login`} className="w-full mb-6 flex items-center justify-center px-4 py-2.5 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-medium text-sm">
+        <a href={${API_URL}/auth/github/login} className="w-full mb-6 flex items-center justify-center px-4 py-2.5 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-medium text-sm">
           <GitBranch className="w-5 h-5 mr-2" />
           Continue with GitHub
         </a>
@@ -34,17 +48,22 @@ export default function Login() {
             <div className="w-full border-t border-border-light dark:border-border-dark"></div>
           </div>
           <div className="relative flex justify-center text-xs">
-            <span className="px-2 bg-surface-light dark:bg-surface-dark text-slate-500">Or continue with email</span>
+            <span className="px-2 bg-surface-light dark:bg-surface-dark text-slate-500">Or sign in with username</span>
           </div>
         </div>
+        
+        {error && <div className="mb-4 text-red-500 text-sm text-center">{error}</div>}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1.5 text-slate-700 dark:text-slate-300">Email</label>
+            <label className="block text-sm font-medium mb-1.5 text-slate-700 dark:text-slate-300">Username</label>
             <input 
-              type="email" 
+              type="text" 
+              required
+              value={username}
+              onChange={(e: any) => setUsername(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition-shadow"
-              placeholder="you@example.com"
+              placeholder="you"
             />
           </div>
           <div>
@@ -54,8 +73,11 @@ export default function Login() {
             </div>
             <input 
               type="password" 
+              required
+              value={password}
+              onChange={(e: any) => setPassword(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition-shadow"
-              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+              placeholder="••••••••"
             />
           </div>
           <button type="submit" className="w-full py-2.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-medium transition-colors mt-2 shadow-lg shadow-brand-500/25">

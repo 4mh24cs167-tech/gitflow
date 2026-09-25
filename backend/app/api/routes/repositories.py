@@ -26,7 +26,7 @@ def validate_github_url(value: str) -> str:
 
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)):
     authorization = request.headers.get("authorization", "")
-    token = authorization.removeprefix("Bearer ").strip() if authorization.startswith("Bearer ") else request.cookies.get("access_token", "")
+    token = authorization.removeprefix("Bearer ").strip() if authorization.startswith("Bearer ") else ""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username = payload.get("sub")

@@ -52,10 +52,15 @@ export default function Layout() {
             {theme === 'dark' ? <Sun className="w-4 h-4 mr-3" /> : <Moon className="w-4 h-4 mr-3" />}
             {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
           </button>
-          <Link to="/login" className="flex items-center w-full px-4 py-2.5 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg transition-colors">
+          <button 
+            onClick={() => {
+              localStorage.removeItem('access_token');
+              window.location.href = '/';
+            }}
+            className="flex items-center w-full px-4 py-2.5 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg transition-colors">
             <LogOut className="w-4 h-4 mr-3" />
             Sign Out
-          </Link>
+          </button>
         </div>
       </aside>
 

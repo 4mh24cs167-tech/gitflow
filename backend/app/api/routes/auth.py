@@ -42,7 +42,6 @@ async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depen
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    response.set_cookie("access_token", access_token, httponly=True, samesite="none", secure=settings.FRONTEND_URL.startswith("https"), max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
     return {"access_token": access_token, "token_type": "bearer"}
 
 import httpx
