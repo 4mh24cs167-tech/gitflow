@@ -44,7 +44,7 @@ function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/passport" element={<RiskPassport />} />
-              <Route path="/audit" element={<CommitAudit />} />
+              <Route path="/repositories/:repositoryId/scans/:scanId/audit" element={<CommitAudit />} />
             </Route>
             
             <Route path="*" element={<Navigate to="/" replace />} />

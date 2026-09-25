@@ -56,7 +56,7 @@ export default function Landing() {
               Connect GitBranch <GitBranch className="ml-2 w-4 h-4" />
             </Link>
             <Link to="/login" className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3 rounded-lg bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark text-slate-900 dark:text-white font-medium hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
-              View Demo Dashboard <ChevronRight className="ml-1 w-4 h-4" />
+              View Dashboard <ChevronRight className="ml-1 w-4 h-4" />
             </Link>
           </div>
         </div>

@@ -139,3 +139,33 @@ async def get_risk_history(repository_id: int, current_user: User = Depends(get_
     await owned_repository(repository_id, current_user, db)
     scans = (await db.execute(select(Scan).join(Scan.commit).options(selectinload(Scan.commit), selectinload(Scan.risk_score)).where(Commit.repository_id == repository_id, Scan.status == "COMPLETED").order_by(Scan.completed_at.asc()))).scalars().all()
     return [{"commit_sha": s.commit.hash, "short_sha": s.commit.hash[:7], "risk_score": s.risk_score.score if s.risk_score else 100, "score_delta": s.risk_score.score_delta if s.risk_score else None, "scanned_at": s.completed_at, "commit_message": s.commit.message} for s in scans]
+
+from app.database.models import CommitAnalysis
+
+@router.get("/{repository_id}/scans/{scan_id}")
+async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await owned_repository(repository_id, current_user, db)
+    # Get scan with findings and analysis
+    scan = (await db.execute(select(Scan)
+        .join(Scan.commit)
+        .options(selectinload(Scan.findings), selectinload(Scan.risk_score), selectinload(Scan.commit))
+        .where(Scan.id == scan_id, Commit.repository_id == repository_id)
+    )).scalars().first()
+    
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+        
+    analysis = (await db.execute(select(CommitAnalysis).where(CommitAnalysis.commit_id == scan.commit_id))).scalars().first()
+    
+    changes = []
+    if analysis and analysis.changed_files:
+        changes = [{"file": file} for file in analysis.changed_files]
+        
+    return {
+        "id": scan.id,
+        "commit_sha": scan.commit.hash,
+        "status": scan.status,
+        "findings": [{"title": f.title, "description": f.description, "severity": f.severity} for f in scan.findings],
+        "changes": changes,
+        "risk_score": scan.risk_score.score if scan.risk_score else None
+    }

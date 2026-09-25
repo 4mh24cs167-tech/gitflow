@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Shield, LayoutDashboard, FileCode, GitBranch, Moon, Sun, Settings, LogOut } from 'lucide-react';
+import { Shield, LayoutDashboard, GitBranch, Moon, Sun, Settings, LogOut } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 export default function Layout() {
@@ -10,7 +10,6 @@ export default function Layout() {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Repositories', href: '/onboarding', icon: GitBranch },
     { name: 'Risk Passport', href: '/passport', icon: Shield },
-    { name: 'Audit', href: '/audit', icon: FileCode },
   ];
 
   return (
