@@ -74,6 +74,20 @@ async def run_scan(scan_id: int):
             checked_out = subprocess.run(["git", "-C", temp_dir, "rev-parse", "HEAD"], check=True, capture_output=True, text=True, timeout=10, env=env).stdout.strip().lower()
             if checked_out != commit.hash: raise RuntimeError("checked out revision did not match requested SHA")
             
+            # Fetch metadata
+            metadata_raw = subprocess.run(["git", "-C", temp_dir, "log", "-1", "--format=%s%n%an%n%ae%n%cI%n%P", commit.hash], check=True, capture_output=True, text=True, timeout=10, env=env).stdout.strip().split("\n")
+            if len(metadata_raw) >= 4:
+                commit.message = metadata_raw[0]
+                commit.author_name = metadata_raw[1]
+                commit.author_email = metadata_raw[2]
+                try:
+                    from dateutil.parser import parse
+                    commit.committed_at = parse(metadata_raw[3]).replace(tzinfo=None)
+                except Exception:
+                    pass
+                if len(metadata_raw) > 4 and metadata_raw[4]:
+                    commit.parent_shas = metadata_raw[4].replace(" ", ",")
+            
             # 1. Standard Universal Scan
             raw_findings = UniversalScanner(temp_dir).scan()
             

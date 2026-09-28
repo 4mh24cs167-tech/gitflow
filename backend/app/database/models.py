@@ -33,6 +33,10 @@ class Commit(Base):
     id = Column(Integer, primary_key=True, index=True)
     hash = Column(String, index=True, nullable=False)
     message = Column(String)
+    author_name = Column(String)
+    author_email = Column(String)
+    committed_at = Column(DateTime)
+    parent_shas = Column(String)
     repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
 
     repository = relationship("Repository", back_populates="commits")

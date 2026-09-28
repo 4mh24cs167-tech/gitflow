@@ -139,7 +139,7 @@ async def get_risk_history(repository_id: int, current_user: User = Depends(get_
     await owned_repository(repository_id, current_user, db)
     from sqlalchemy.orm import selectinload
     from app.database.models import Notification
-    scans = (await db.execute(select(Scan).join(Scan.commit).options(selectinload(Scan.commit), selectinload(Scan.risk_score)).where(Commit.repository_id == repository_id, Scan.status == "COMPLETED").order_by(Scan.completed_at.asc()))).scalars().all()
+    scans = (await db.execute(select(Scan).join(Scan.commit).options(selectinload(Scan.commit), selectinload(Scan.risk_score), selectinload(Scan.findings)).where(Commit.repository_id == repository_id, Scan.status == "COMPLETED").order_by(Scan.completed_at.asc()))).scalars().all()
     
     result = []
     for s in scans:
@@ -148,10 +148,11 @@ async def get_risk_history(repository_id: int, current_user: User = Depends(get_
             "id": s.id,
             "commit_sha": s.commit.hash, 
             "short_sha": s.commit.hash[:7], 
-            "risk_score": s.risk_score.score if s.risk_score else 100, 
+            "risk_score": s.risk_score.score if s.risk_score else None, 
             "score_delta": s.risk_score.score_delta if s.risk_score else None, 
             "scanned_at": s.completed_at, 
             "commit_message": s.commit.message,
+            "findings_count": len(s.findings),
             "alerts": [n.title for n in notifications]
         })
     return result
@@ -180,6 +181,9 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
     changes = []
     if analysis and analysis.changed_files:
         changes = json.loads(analysis.changed_files)
+    impact = {}
+    if analysis and analysis.impact_analysis:
+        impact = json.loads(analysis.impact_analysis)
         
     from app.database.models import Notification
     notifications = (await db.execute(select(Notification).where(Notification.scan_id == scan.id))).scalars().all()
@@ -191,9 +195,13 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
     return {
         "id": scan.id,
         "commit_sha": scan.commit.hash,
+        "message": scan.commit.message,
+        "author": scan.commit.author_name or "Unknown",
+        "timestamp": scan.commit.committed_at.isoformat() if scan.commit.committed_at else None,
         "status": scan.status,
         "findings": [{"title": f.type, "description": f.description, "severity": f.severity} for f in scan.findings],
         "changes": changes,
+        "impact": impact,
         "risk_score": current_score,
         "previous_score": previous_score,
         "score_delta": score_delta,
@@ -214,7 +222,7 @@ async def ask_scan_question(repository_id: int, scan_id: int, request: AskReques
     scan = (await db.execute(select(Scan).join(Scan.commit).options(selectinload(Scan.commit), selectinload(Scan.risk_score), selectinload(Scan.findings)).where(Scan.id == scan_id, Commit.repository_id == repository_id))).scalars().first()
     if not scan: raise HTTPException(status_code=404, detail="Scan not found")
         
-    analysis = (await db.execute(select(CommitAnalysis).where(CommitAnalysis.commit_id == scan.commit_id))).scalars().first()
+    analysis = (await db.execute(select(CommitAnalysis).where(CommitAnalysis.scan_id == scan.id))).scalars().first()
     notifications = (await db.execute(select(Notification).where(Notification.scan_id == scan.id))).scalars().all()
     
     actions = json.loads(analysis.actions_detected) if analysis and analysis.actions_detected else []
@@ -258,15 +266,18 @@ async def ask_scan_question(repository_id: int, scan_id: int, request: AskReques
         sources.append("CommitAnalysis.changed_files")
         
     elif matched_intent == "why_risk":
-        score_delta = scan.risk_score.score_delta if scan.risk_score else 0
-        current_score = scan.risk_score.score if scan.risk_score else 0
-        previous_score = current_score - score_delta
-        
-        if score_delta == 0:
-            answer = f"VERIFIED FACT:\nThe risk score did not change (remained at {current_score})."
+        if not scan.risk_score:
+            answer = "VERIFIED FACT:\nRisk score is currently unavailable for this commit."
         else:
-            direction = "decreased" if score_delta < 0 else "increased"
-            answer = f"VERIFIED FACT:\nThe risk score {direction} by {abs(score_delta)} points (from {previous_score} to {current_score})."
+            score_delta = scan.risk_score.score_delta or 0
+            current_score = scan.risk_score.score
+            previous_score = current_score - score_delta
+            
+            if score_delta == 0:
+                answer = f"VERIFIED FACT:\nThe risk score did not change (remained at {current_score})."
+            else:
+                direction = "decreased" if score_delta < 0 else "increased"
+                answer = f"VERIFIED FACT:\nThe risk score {direction} by {abs(score_delta)} points (from {previous_score} to {current_score})."
             if findings:
                 answer += "\n\nContributing findings (VERIFIED FACT):\n" + "\n".join([f"- {f.description}" for f in findings])
         facts.append(f"Score delta: {score_delta}")

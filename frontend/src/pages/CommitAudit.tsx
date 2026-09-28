@@ -64,9 +64,9 @@ export default function CommitAudit() {
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
   if (!data) return <div className="p-8 text-center text-slate-500">No data found.</div>;
 
-  const prevScore = data.previous_score ?? 100;
-  const currentScore = data.current_score ?? data.risk_score ?? prevScore;
-  const delta = data.score_delta ?? (currentScore - prevScore);
+  const currentScore = data.risk_score;
+  const prevScore = data.previous_score;
+  const delta = data.score_delta;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
@@ -92,10 +92,10 @@ export default function CommitAudit() {
           <div>
             <div className="text-sm text-slate-500 uppercase tracking-wider mb-1">Risk Score</div>
             <div className="flex items-center">
-              <span className="text-4xl font-bold text-slate-800 dark:text-white">{currentScore}</span>
+              <span className="text-4xl font-bold text-slate-800 dark:text-white">{currentScore !== null ? currentScore : "N/A"}</span>
               <div className={`ml-3 flex items-center text-sm font-medium ${delta < 0 ? 'text-red-500' : delta > 0 ? 'text-emerald-500' : 'text-slate-500'}`}>
-                {delta < 0 ? <ArrowUpRight className="w-4 h-4 mr-1" /> : delta > 0 ? <ArrowDownRight className="w-4 h-4 mr-1" /> : null}
-                {delta !== 0 ? Math.abs(delta) : 'No change'}
+                {delta !== null && delta < 0 ? <ArrowUpRight className="w-4 h-4 mr-1" /> : delta !== null && delta > 0 ? <ArrowDownRight className="w-4 h-4 mr-1" /> : null}
+                {delta !== null && delta !== 0 ? Math.abs(delta) : delta === 0 ? 'No change' : ''}
               </div>
             </div>
           </div>

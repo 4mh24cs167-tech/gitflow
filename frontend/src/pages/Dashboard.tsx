@@ -6,7 +6,7 @@ import axios from 'axios';
 
 export default function Dashboard() {
   const [repos, setRepos] = useState<any[]>([]);
-  const [history, setHistory] = useState<{ commit: string; score: number; date: string; scoreDelta: number | null }[]>([]);
+  const [history, setHistory] = useState<{ commit: string; score: number | null; date: string; scoreDelta: number | null; findingsCount?: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,6 +23,7 @@ export default function Dashboard() {
            });
            const chartData = historyRes.data.map((h: any) => ({
              scanId: h.id,
+               findingsCount: h.findings_count,
              repoId: res.data[0].id,
              commit: h.short_sha,
              score: h.risk_score,
@@ -43,7 +44,7 @@ export default function Dashboard() {
 
   const stats = [
     { title: 'Total Repositories', value: repos.length, change: '', trend: 'neutral' },
-    { title: 'Average Risk Score', value: history.length > 0 ? history[history.length - 1].score : 'N/A', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest Δ ${history[history.length - 1].scoreDelta! >= 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
+    { title: 'Average Risk Score', value: history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'N/A', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest Δ ${history[history.length - 1].scoreDelta! >= 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
   ];
 
   return (
@@ -129,7 +130,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Current Risk Score</p>
-                    <p className="font-medium">{history.length > 0 ? history[history.length - 1].score : 'N/A'}</p>
+                    <p className="font-medium">{history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Latest Commit</p>
@@ -137,7 +138,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Open Findings</p>
-                    <p className="font-medium">N/A</p>
+                    <p className="font-medium">{history.length > 0 ? history[history.length - 1].findingsCount !== undefined ? history[history.length - 1].findingsCount : "0" : "N/A"}</p>
                   </div>
                 </div>
               </div>
