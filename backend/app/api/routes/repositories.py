@@ -222,72 +222,104 @@ async def ask_scan_question(repository_id: int, scan_id: int, request: AskReques
     impact = json.loads(analysis.impact_analysis) if analysis and analysis.impact_analysis else []
     findings = scan.findings
     
-    q = request.question.lower()
+    # Intent normalization
+    q = request.question.lower().strip()
+    
+    intents = {
+        "what_changed": ["what changed", "what was changed", "tell me what changed", "what did this commit modify", "which files changed", "what changed in this commit", "files modified"],
+        "why_risk": ["why did risk increase", "why is the score lower", "why did my score change", "why did the risk score change", "why risk", "score delta", "risk score"],
+        "impact": ["what can this affect", "what modules may be affected", "what is affected", "impact", "indirectly affected", "what could be affected indirectly", "affected"],
+        "security": ["was anything security related changed", "security", "security-sensitive", "secrets", "auth"],
+        "dependencies": ["did dependencies change", "dependencies", "packages"],
+        "review": ["what should i review", "review", "which files should i review"],
+        "explain": ["explain this commit", "summarize this commit", "explain", "simply", "summary"],
+        "alerts": ["what alerts were triggered", "alerts", "notifications"]
+    }
+    
+    matched_intent = None
+    for intent, variants in intents.items():
+        if any(v in q for v in variants):
+            matched_intent = intent
+            break
+            
     answer = ""
     facts = []
     sources = []
     
-    if "what changed" in q or "which files" in q:
-        answer = f"This commit modified {len(changes)} files."
+    # Score Delta Convention: current_score - previous_score
+    # Negative delta = risk decreased (improved)
+    # Positive delta = risk increased (worsened)
+    
+    if matched_intent == "what_changed":
+        answer = f"VERIFIED FACT:\nThis commit modified {len(changes)} files."
         if changes:
             answer += "\n\nFiles changed:\n" + "\n".join([f"- {c.get('file', c) if isinstance(c, dict) else c}" for c in changes])
         facts.append(f"{len(changes)} files modified.")
         sources.append("CommitAnalysis.changed_files")
         
-    elif "why did the risk score change" in q or "why risk" in q:
+    elif matched_intent == "why_risk":
         score_delta = scan.risk_score.score_delta if scan.risk_score else 0
+        current_score = scan.risk_score.score if scan.risk_score else 0
+        previous_score = current_score - score_delta
+        
         if score_delta == 0:
-            answer = "The risk score did not change."
+            answer = f"VERIFIED FACT:\nThe risk score did not change (remained at {current_score})."
         else:
-            direction = "increased" if score_delta < 0 else "decreased"
-            answer = f"The risk score {direction} by {abs(score_delta)} points."
+            direction = "decreased" if score_delta < 0 else "increased"
+            answer = f"VERIFIED FACT:\nThe risk score {direction} by {abs(score_delta)} points (from {previous_score} to {current_score})."
             if findings:
-                answer += "\n\nContributing findings:\n" + "\n".join([f"- {f.description}" for f in findings])
+                answer += "\n\nContributing findings (VERIFIED FACT):\n" + "\n".join([f"- {f.description}" for f in findings])
         facts.append(f"Score delta: {score_delta}")
         sources.append("RiskScore.score_delta")
         
-    elif "affected" in q or "impact" in q:
+    elif matched_intent == "impact":
         if impact:
-            answer = "The following modules could be potentially affected by this change:\n" + "\n".join([f"- {i}" for i in impact])
+            answer = "POTENTIAL IMPACT:\nThe following modules could be indirectly affected by this change based on structural dependency rules:\n" + "\n".join([f"- {i}" for i in impact])
             facts.append(f"{len(impact)} modules potentially affected.")
         else:
-            answer = "No indirect module impact was deterministically detected."
+            answer = "VERIFIED FACT:\nNo indirect module impact was deterministically detected."
         sources.append("CommitAnalysis.impact_analysis")
             
-    elif "security" in q:
+    elif matched_intent == "security":
         sec_actions = [a for a in actions if "auth" in a.lower() or "security" in a.lower()]
-        if sec_actions:
-            answer = "Security-sensitive changes detected:\n" + "\n".join([f"- {a}" for a in sec_actions])
-            facts.append("Security files modified.")
+        sec_findings = [f.description for f in findings if "secur" in f.type.lower() or f.severity.lower() in ("high", "critical")]
+        if sec_actions or sec_findings:
+            answer = "VERIFIED FACT:\nSecurity-sensitive events detected:\n"
+            if sec_actions:
+                answer += "\nActions:\n" + "\n".join([f"- {a}" for a in sec_actions])
+            if sec_findings:
+                answer += "\n\nFindings:\n" + "\n".join([f"- {f}" for f in sec_findings])
+            facts.append("Security modifications/findings present.")
         else:
-            answer = "No explicit security-sensitive changes were detected."
+            answer = "VERIFIED FACT:\nNo explicit security-sensitive changes were detected."
         sources.append("CommitAnalysis.actions_detected")
+        sources.append("Findings")
         
-    elif "dependenc" in q:
+    elif matched_intent == "dependencies":
         dep_actions = [a for a in actions if "dependenc" in a.lower()]
         if dep_actions:
-            answer = "Dependency changes detected:\n" + "\n".join([f"- {a}" for a in dep_actions])
+            answer = "VERIFIED FACT:\nDependency changes detected:\n" + "\n".join([f"- {a}" for a in dep_actions])
             facts.append("Dependencies modified.")
         else:
-            answer = "No dependency manifest changes were detected."
+            answer = "VERIFIED FACT:\nNo dependency manifest changes were detected."
         sources.append("CommitAnalysis.actions_detected")
         
-    elif "review" in q:
-        answer = "You should review files that triggered alerts or direct structural changes."
+    elif matched_intent == "review":
+        answer = "POTENTIAL IMPACT:\nYou should review files that triggered alerts or direct structural changes."
         if changes:
             answer += "\n\nModified files requiring review:\n" + "\n".join([f"- {c.get('file', c) if isinstance(c, dict) else c}" for c in changes])
         sources.append("CommitAnalysis.changed_files")
         
-    elif "alerts" in q:
+    elif matched_intent == "alerts":
         if notifications:
-            answer = "The following alerts were triggered:\n" + "\n".join([f"- {n.title}: {n.message}" for n in notifications])
+            answer = "VERIFIED FACT:\nThe following alerts were triggered:\n" + "\n".join([f"- {n.title}: {n.message}" for n in notifications])
             facts.append(f"{len(notifications)} alerts triggered.")
         else:
-            answer = "No alerts were triggered for this commit."
+            answer = "VERIFIED FACT:\nNo alerts were triggered for this commit."
         sources.append("Notification")
         
-    elif "simply" in q or "explain" in q:
-        answer = f"This commit by {scan.commit.author} changed {len(changes)} files. "
+    elif matched_intent == "explain":
+        answer = f"VERIFIED FACT:\nThis commit by {scan.commit.author} changed {len(changes)} files. "
         if actions:
             answer += f"It performed the following actions: {', '.join(actions)}. "
         if notifications:
@@ -296,7 +328,7 @@ async def ask_scan_question(repository_id: int, scan_id: int, request: AskReques
         sources.append("CommitAnalysis.actions_detected")
         
     else:
-        answer = "I can answer questions about what changed, risk score changes, affected modules, security, dependencies, and alerts."
+        answer = "I can answer questions about this commit's changes, risk, impact, security changes, dependencies, alerts, and review areas."
         
     return {
         "question": request.question,
