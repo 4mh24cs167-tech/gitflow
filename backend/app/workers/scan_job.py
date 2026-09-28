@@ -84,16 +84,42 @@ async def run_scan(scan_id: int):
             changed_files_data = analyze_commit_changes(temp_dir, commit.hash)
             structural_changes_data = analyze_structural_changes(temp_dir, commit.hash)
             dep_graph = build_dependency_graph(temp_dir)
-            changed_file_paths = [cf['file_path'] for cf in changed_files_data if cf['status'] in ('ADDED', 'MODIFIED', 'RENAMED')]
+            changed_file_paths = [cf.get('file', '') for cf in changed_files_data if cf.get('status', '') in ('A', 'M', 'R') or cf.get('status', '').startswith('R')]
             impact_data = analyze_impact(changed_file_paths, dep_graph)
+            
+            actions_detected = []
+            has_sensitive_change = False
+            for cf in changed_files_data:
+                filepath = cf.get("file", "").lower()
+                status = cf.get("status", "")
+                if "auth" in filepath or "security" in filepath:
+                    actions_detected.append("Authentication logic modified" if status != "A" else "Authentication logic added")
+                    has_sensitive_change = True
+                if "migration" in filepath or "alembic" in filepath or "schema" in filepath:
+                    actions_detected.append("Database schema modified")
+                if ("api" in filepath or "route" in filepath) and ("controller" in filepath or "router" in filepath or "endpoints" in filepath or "api" in filepath):
+                    actions_detected.append("API endpoint modified" if status != "A" else "API endpoint added")
+            actions_detected = list(set(actions_detected))
             
             db.add(CommitAnalysis(
                 scan_id=scan.id,
                 changed_files=json.dumps(changed_files_data),
                 structural_changes=json.dumps(structural_changes_data),
                 dependency_graph=json.dumps(dep_graph),
-                impact_analysis=json.dumps(impact_data)
+                impact_analysis=json.dumps(impact_data),
+                actions_detected=json.dumps(actions_detected)
             ))
+            
+            if has_sensitive_change:
+                from app.database.models import Notification
+                db.add(Notification(
+                    user_id=repo.owner_id,
+                    repository_id=repo.id,
+                    scan_id=scan.id,
+                    type="SENSITIVE_CHANGE",
+                    title="Sensitive Code Modified",
+                    message=f"Commit {commit.hash[:7]} modified sensitive authentication or security files."
+                ))
             
             # 3. Calculate Risk
             score_breakdown = calculate_risk_score(raw_findings)

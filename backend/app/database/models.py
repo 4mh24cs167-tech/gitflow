@@ -104,5 +104,23 @@ class CommitAnalysis(Base):
     structural_changes = Column(Text)
     dependency_graph = Column(Text)
     impact_analysis = Column(Text)
+    actions_detected = Column(Text)
 
     scan = relationship('Scan', back_populates='commit_analysis')
+
+class Notification(Base):
+    __tablename__ = 'notifications'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    repository_id = Column(Integer, ForeignKey('repositories.id', ondelete='CASCADE'), nullable=False)
+    scan_id = Column(Integer, ForeignKey('scans.id', ondelete='CASCADE'), nullable=True)
+    type = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship('User')
+    repository = relationship('Repository')
+    scan = relationship('Scan')

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.database.session import engine, Base
-from app.api.routes import auth, repositories, webhooks
+from app.api.routes import auth, repositories, webhooks, notifications
 # import models to ensure they are registered with Base metadata
 from app.database import models
 
@@ -28,6 +28,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(repositories.router)
 app.include_router(webhooks.router)
+app.include_router(notifications.router)
 
 @app.get("/")
 async def root():

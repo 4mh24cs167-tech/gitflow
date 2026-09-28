@@ -1,16 +1,59 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Shield, LayoutDashboard, GitBranch, Moon, Sun, Settings, LogOut } from 'lucide-react';
+import { Shield, LayoutDashboard, GitBranch, Moon, Sun, Settings, LogOut, Bell } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
+import { API_URL } from '../config';
 
 export default function Layout() {
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Repositories', href: '/onboarding', icon: GitBranch },
     { name: 'Risk Passport', href: '/passport', icon: Shield },
   ];
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/notifications`, { withCredentials: true });
+        setNotifications(res.data);
+      } catch (e) {
+        console.error("Failed to fetch notifications", e);
+      }
+    };
+    fetchNotifications();
+    
+    const interval = setInterval(fetchNotifications, 30000); // Poll every 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const markAsRead = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await axios.put(`${API_URL}/notifications/${id}/read`, {}, { withCredentials: true });
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    } catch (e) {
+      console.error("Failed to mark as read", e);
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
 
   return (
     <div className="flex h-screen bg-background-light dark:bg-background-dark">
@@ -65,11 +108,59 @@ export default function Layout() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 border-b border-border-light dark:border-border-dark bg-surface-light/50 dark:bg-surface-dark/50 backdrop-blur-sm flex items-center justify-between px-8">
+        <header className="h-16 border-b border-border-light dark:border-border-dark bg-surface-light/50 dark:bg-surface-dark/50 backdrop-blur-sm flex items-center justify-between px-8 z-10">
           <h1 className="text-xl font-semibold">
             {navigation.find(n => location.pathname.startsWith(n.href))?.name || 'Overview'}
           </h1>
           <div className="flex items-center space-x-4">
+            
+            <div className="relative" ref={notifRef}>
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2 relative text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"></span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-xl shadow-xl overflow-hidden z-50">
+                  <div className="p-4 border-b border-border-light dark:border-border-dark flex justify-between items-center">
+                    <h3 className="font-semibold text-sm">Notifications</h3>
+                    {unreadCount > 0 && (
+                      <span className="text-xs bg-brand-100 text-brand-600 dark:bg-brand-900/30 dark:text-brand-400 px-2 py-0.5 rounded-full font-medium">
+                        {unreadCount} new
+                      </span>
+                    )}
+                  </div>
+                  <div className="max-h-[400px] overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-slate-500">No notifications</div>
+                    ) : (
+                      notifications.map((n, i) => (
+                        <div key={i} className={`p-4 border-b border-border-light dark:border-border-dark last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer ${!n.is_read ? 'bg-slate-50/50 dark:bg-slate-800/20' : ''}`}>
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="text-sm font-medium pr-4">{n.title || n.message}</span>
+                            {!n.is_read && (
+                              <button 
+                                onClick={(e) => markAsRead(n.id, e)}
+                                className="text-xs text-brand-500 hover:text-brand-600 whitespace-nowrap"
+                              >
+                                Mark read
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">{new Date(n.created_at || Date.now()).toLocaleString()}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
               <Settings className="w-5 h-5" />
             </button>

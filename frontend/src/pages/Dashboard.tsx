@@ -22,10 +22,13 @@ export default function Dashboard() {
              withCredentials: true
            });
            const chartData = historyRes.data.map((h: any) => ({
+             scanId: h.id,
+             repoId: res.data[0].id,
              commit: h.short_sha,
              score: h.risk_score,
              date: new Date(h.scanned_at).toLocaleDateString(),
-             scoreDelta: h.score_delta
+             scoreDelta: h.score_delta,
+             alerts: h.alerts
            }));
            setHistory(chartData);
         }
@@ -136,6 +139,47 @@ export default function Dashboard() {
                     <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Open Findings</p>
                     <p className="font-medium">N/A</p>
                   </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark shadow-soft dark:shadow-soft-dark overflow-hidden">
+        <div className="px-6 py-4 border-b border-border-light dark:border-border-dark flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Recent Commit Intelligence</h2>
+        </div>
+        <div className="divide-y divide-border-light dark:divide-border-dark">
+          {loading ? (
+            <div className="p-6 text-center text-slate-500">Loading commits...</div>
+          ) : history.length === 0 ? (
+            <div className="p-6 text-center text-slate-500">No commits analyzed yet.</div>
+          ) : (
+            history.slice().reverse().slice(0, 5).map((h: any, idx) => (
+              <div key={idx} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer" onClick={() => window.location.href=`/repositories/${h.repoId}/scans/${h.scanId}/audit`}>
+                <div>
+                  <div className="flex items-center space-x-2 mb-1">
+                    <span className="font-mono text-sm font-semibold text-slate-700 dark:text-slate-300">{h.commit}</span>
+                    <span className="text-xs text-slate-500">{h.date}</span>
+                  </div>
+                  <div className="flex items-center space-x-4">
+                    <div className="text-sm">
+                      Risk: <span className="font-semibold">{h.score - (h.scoreDelta || 0)}</span> &rarr; <span className="font-semibold">{h.score}</span>
+                    </div>
+                    {h.alerts && h.alerts.length > 0 && (
+                      <div className="flex items-center space-x-2">
+                        {h.alerts.map((alert: string, i: number) => (
+                          <span key={i} className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">
+                            {alert}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="text-brand-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                  View Details &rarr;
                 </div>
               </div>
             ))
