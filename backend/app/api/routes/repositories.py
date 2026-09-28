@@ -207,8 +207,101 @@ class AskRequest(BaseModel):
 @router.post("/{repository_id}/scans/{scan_id}/ask")
 async def ask_scan_question(repository_id: int, scan_id: int, request: AskRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     await owned_repository(repository_id, current_user, db)
-    scan = (await db.execute(select(Scan).join(Scan.commit).where(Scan.id == scan_id, Commit.repository_id == repository_id))).scalars().first()
-    if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
+    from sqlalchemy.orm import selectinload
+    from app.database.models import Notification
+    import json
+    
+    scan = (await db.execute(select(Scan).join(Scan.commit).options(selectinload(Scan.commit), selectinload(Scan.risk_score), selectinload(Scan.findings)).where(Scan.id == scan_id, Commit.repository_id == repository_id))).scalars().first()
+    if not scan: raise HTTPException(status_code=404, detail="Scan not found")
         
-    return {"answer": f"Deterministically evaluated: the commit {scan.commit.hash[:7]} was analyzed successfully. Future iterations will provide an AI-driven explanation for: {request.question}"}
+    analysis = (await db.execute(select(CommitAnalysis).where(CommitAnalysis.commit_id == scan.commit_id))).scalars().first()
+    notifications = (await db.execute(select(Notification).where(Notification.scan_id == scan.id))).scalars().all()
+    
+    actions = json.loads(analysis.actions_detected) if analysis and analysis.actions_detected else []
+    changes = json.loads(analysis.changed_files) if analysis and analysis.changed_files else []
+    impact = json.loads(analysis.impact_analysis) if analysis and analysis.impact_analysis else []
+    findings = scan.findings
+    
+    q = request.question.lower()
+    answer = ""
+    facts = []
+    sources = []
+    
+    if "what changed" in q or "which files" in q:
+        answer = f"This commit modified {len(changes)} files."
+        if changes:
+            answer += "\n\nFiles changed:\n" + "\n".join([f"- {c.get('file', c) if isinstance(c, dict) else c}" for c in changes])
+        facts.append(f"{len(changes)} files modified.")
+        sources.append("CommitAnalysis.changed_files")
+        
+    elif "why did the risk score change" in q or "why risk" in q:
+        score_delta = scan.risk_score.score_delta if scan.risk_score else 0
+        if score_delta == 0:
+            answer = "The risk score did not change."
+        else:
+            direction = "increased" if score_delta < 0 else "decreased"
+            answer = f"The risk score {direction} by {abs(score_delta)} points."
+            if findings:
+                answer += "\n\nContributing findings:\n" + "\n".join([f"- {f.description}" for f in findings])
+        facts.append(f"Score delta: {score_delta}")
+        sources.append("RiskScore.score_delta")
+        
+    elif "affected" in q or "impact" in q:
+        if impact:
+            answer = "The following modules could be potentially affected by this change:\n" + "\n".join([f"- {i}" for i in impact])
+            facts.append(f"{len(impact)} modules potentially affected.")
+        else:
+            answer = "No indirect module impact was deterministically detected."
+        sources.append("CommitAnalysis.impact_analysis")
+            
+    elif "security" in q:
+        sec_actions = [a for a in actions if "auth" in a.lower() or "security" in a.lower()]
+        if sec_actions:
+            answer = "Security-sensitive changes detected:\n" + "\n".join([f"- {a}" for a in sec_actions])
+            facts.append("Security files modified.")
+        else:
+            answer = "No explicit security-sensitive changes were detected."
+        sources.append("CommitAnalysis.actions_detected")
+        
+    elif "dependenc" in q:
+        dep_actions = [a for a in actions if "dependenc" in a.lower()]
+        if dep_actions:
+            answer = "Dependency changes detected:\n" + "\n".join([f"- {a}" for a in dep_actions])
+            facts.append("Dependencies modified.")
+        else:
+            answer = "No dependency manifest changes were detected."
+        sources.append("CommitAnalysis.actions_detected")
+        
+    elif "review" in q:
+        answer = "You should review files that triggered alerts or direct structural changes."
+        if changes:
+            answer += "\n\nModified files requiring review:\n" + "\n".join([f"- {c.get('file', c) if isinstance(c, dict) else c}" for c in changes])
+        sources.append("CommitAnalysis.changed_files")
+        
+    elif "alerts" in q:
+        if notifications:
+            answer = "The following alerts were triggered:\n" + "\n".join([f"- {n.title}: {n.message}" for n in notifications])
+            facts.append(f"{len(notifications)} alerts triggered.")
+        else:
+            answer = "No alerts were triggered for this commit."
+        sources.append("Notification")
+        
+    elif "simply" in q or "explain" in q:
+        answer = f"This commit by {scan.commit.author} changed {len(changes)} files. "
+        if actions:
+            answer += f"It performed the following actions: {', '.join(actions)}. "
+        if notifications:
+            answer += f"It triggered {len(notifications)} alerts."
+        sources.append("Commit metadata")
+        sources.append("CommitAnalysis.actions_detected")
+        
+    else:
+        answer = "I can answer questions about what changed, risk score changes, affected modules, security, dependencies, and alerts."
+        
+    return {
+        "question": request.question,
+        "answer": answer,
+        "facts": facts,
+        "sources": sources,
+        "confidence": "deterministic"
+    }
