@@ -11,13 +11,20 @@ export default function RiskPassport() {
   const [repos, setRepos] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [latestScan, setLatestScan] = useState<any>(null);
+  const [needsSelection, setNeedsSelection] = useState(false);
+
+  const handleRepoChange = (e: any) => {
+    localStorage.setItem('gitflow_active_repo', e.target.value);
+    window.location.reload();
+  };
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        // 1. Get repos
+                // 1. Get repos
         const repoRes = await apiClient.get(`/repositories/`);
+        setRepos(repoRes.data);
         if (repoRes.data.length === 0) {
           setLoading(false);
           return;
@@ -25,12 +32,18 @@ export default function RiskPassport() {
         
         let targetId = localStorage.getItem('gitflow_active_repo');
         let activeRepo = repoRes.data.find((r: any) => r.id.toString() === targetId);
+        
         if (!activeRepo) {
-            activeRepo = repoRes.data[0];
-            localStorage.setItem('gitflow_active_repo', activeRepo.id.toString());
+            if (repoRes.data.length === 1) {
+                activeRepo = repoRes.data[0];
+                localStorage.setItem('gitflow_active_repo', activeRepo.id.toString());
+            } else {
+                setNeedsSelection(true);
+                setLoading(false);
+                return;
+            }
         }
         setRepo(activeRepo);
-        setRepos(repoRes.data);
 
         // 2. Get history
         const histRes = await apiClient.get(`/repositories/${activeRepo.id}/risk-history`);
@@ -55,6 +68,23 @@ export default function RiskPassport() {
   if (loading) return <div className="p-8 text-center text-slate-500">Loading Risk Passport...</div>;
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
 
+  if (needsSelection) {
+     return (
+       <div className="max-w-6xl mx-auto py-12 text-center">
+         <Shield className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-700 mb-4" />
+         <h2 className="text-2xl font-bold mb-4 text-slate-800 dark:text-white">Select a Repository</h2>
+         <select 
+           className="bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-md px-4 py-2 text-base outline-none"
+           onChange={handleRepoChange} 
+           defaultValue=""
+         >
+           <option value="" disabled>Select a repository...</option>
+           {repos.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+         </select>
+       </div>
+     );
+  }
+
   if (!repo || history.length === 0 || !latestScan) {
     return (
       <div className="max-w-6xl mx-auto text-center py-12">
@@ -75,10 +105,7 @@ export default function RiskPassport() {
     score: h.risk_score
   }));
 
-  const handleRepoChange = (e: any) => {
-    localStorage.setItem('gitflow_active_repo', e.target.value);
-    window.location.reload();
-  };
+
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">

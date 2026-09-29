@@ -8,26 +8,43 @@ export default function Dashboard() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(localStorage.getItem('gitflow_active_repo') || null);
   const [history, setHistory] = useState<{ commit: string; score: number | null; date: string; scoreDelta: number | null; findingsCount?: number }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [needsSelection, setNeedsSelection] = useState(false);
+
+  const handleRepoChange = (e: any) => {
+    localStorage.setItem('gitflow_active_repo', e.target.value);
+    window.location.reload();
+  };
 
   useEffect(() => {
     const fetchRepos = async () => {
       try {
-        const res = await apiClient.get(`/repositories/`);
+                const res = await apiClient.get(`/repositories/`);
         setRepos(res.data);
         
+        if (res.data.length === 0) {
+            setLoading(false);
+            return;
+        }
+        
         let targetId = activeRepoId;
-        if (res.data.length > 0 && !res.data.find((r: any) => r.id.toString() === targetId)) {
-            targetId = res.data[0].id.toString();
-            setActiveRepoId(targetId);
-            localStorage.setItem('gitflow_active_repo', targetId as string);
+        if (!targetId || !res.data.find((r: any) => r.id.toString() === targetId)) {
+            if (res.data.length === 1) {
+                targetId = res.data[0].id.toString();
+                setActiveRepoId(targetId);
+                localStorage.setItem('gitflow_active_repo', targetId as string);
+            } else {
+                setNeedsSelection(true);
+                setLoading(false);
+                return;
+            }
         }
         
         if (targetId) {
            const historyRes = await apiClient.get(`/repositories/${targetId}/risk-history`);
            const chartData = historyRes.data.map((h: any) => ({
              scanId: h.id,
-               findingsCount: h.findings_count,
-             repoId: res.data[0].id,
+             findingsCount: h.findings_count,
+             repoId: targetId,
              commit: h.short_sha,
              score: h.risk_score,
              date: new Date(h.scanned_at).toLocaleDateString(),
@@ -45,17 +62,26 @@ export default function Dashboard() {
     fetchRepos();
   }, []);
 
-  const handleRepoChange = (e: any) => {
-    const id = e.target.value;
-    setActiveRepoId(id);
-    localStorage.setItem('gitflow_active_repo', id);
-    window.location.reload();
-  };
-
   const stats = [
     { title: 'Total Repositories', value: repos.length, change: '', trend: 'neutral' },
     { title: 'Average Risk Score', value: history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'NO COMPLETED SCAN', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest Δ ${history[history.length - 1].scoreDelta! >= 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
   ];
+
+  if (needsSelection) {
+    return (
+      <div className="max-w-6xl mx-auto py-12 text-center">
+         <h2 className="text-2xl font-bold mb-4 text-slate-800 dark:text-white">Select a Repository</h2>
+         <select 
+           className="bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-md px-4 py-2 text-base outline-none"
+           onChange={handleRepoChange} 
+           defaultValue=""
+         >
+           <option value="" disabled>Select a repository...</option>
+           {repos.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+         </select>
+       </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
