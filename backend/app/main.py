@@ -7,9 +7,29 @@ from app.api.routes import auth, repositories, webhooks, notifications
 from app.database import models
 
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
+def run_migrations():
+    from alembic.config import Config
+    from alembic import command
+    # Assuming the working directory is backend
+    import os
+    alembic_ini_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini")
+    alembic_cfg = Config(alembic_ini_path)
+    # Set the script location manually just in case
+    alembic_cfg.set_main_option("script_location", os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic"))
+    command.upgrade(alembic_cfg, "head")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        await asyncio.to_thread(run_migrations)
+        logger.info("Successfully ran database migrations.")
+    except Exception as e:
+        logger.error(f"Error running database migrations: {e}")
+
     from app.workers.polling import repository_polling_loop
     task = asyncio.create_task(repository_polling_loop())
     yield
