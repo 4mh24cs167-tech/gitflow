@@ -23,6 +23,14 @@ class Repository(Base):
     url = Column(String, nullable=False)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
+    provider = Column(String, default="github")
+    github_owner = Column(String, nullable=True)
+    default_branch = Column(String, nullable=True)
+    is_public = Column(Boolean, default=True)
+    github_created_at = Column(DateTime(timezone=True), nullable=True)
+    github_updated_at = Column(DateTime(timezone=True), nullable=True)
+    monitoring_enabled = Column(Boolean, default=True)
+
     owner = relationship("User", back_populates="repositories")
     commits = relationship("Commit", back_populates="repository", cascade="all, delete-orphan")
 

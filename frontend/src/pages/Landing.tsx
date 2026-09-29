@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Shield, ChevronRight, GitBranch } from 'lucide-react';
+import { Shield, ChevronRight } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 export default function Landing() {
@@ -53,7 +53,7 @@ export default function Landing() {
           
           <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 pt-4">
             <Link to="/register" className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-medium hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors shadow-xl shadow-slate-900/10 dark:shadow-white/10">
-              Connect GitBranch <GitBranch className="ml-2 w-4 h-4" />
+              Start for free <ChevronRight className="ml-1 w-4 h-4" />
             </Link>
             <Link to="/login" className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3 rounded-lg bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark text-slate-900 dark:text-white font-medium hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
               View Dashboard <ChevronRight className="ml-1 w-4 h-4" />

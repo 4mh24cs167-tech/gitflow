@@ -1,4 +1,7 @@
-from pydantic import BaseModel
+with open("backend/app/schemas/repository.py", "r", encoding="utf-8") as f:
+    content = f.read()
+
+new_content = """from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
@@ -22,3 +25,6 @@ class RepositoryResponse(RepositoryBase):
 
     class Config:
         from_attributes = True
+"""
+with open("backend/app/schemas/repository.py", "w", encoding="utf-8") as f:
+    f.write(new_content)

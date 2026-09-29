@@ -46,8 +46,20 @@ async def test_onboarding_scan_lifecycle_failed():
         
     app.dependency_overrides.clear()
 
+from httpx import Response
+
 @pytest.mark.asyncio
-async def test_repository_creation_deduplication():
+async def test_repository_creation_deduplication(monkeypatch):
+    async def mock_get(self, url, *args, **kwargs):
+        from httpx import Request
+        return Response(200, request=Request('GET', url), json={
+            "full_name": "test/test_repo",
+            "default_branch": "main",
+            "private": False,
+            "created_at": "2020-01-01T00:00:00Z",
+            "updated_at": "2020-01-01T00:00:00Z"
+        })
+    monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         from app.database.models import Base
@@ -58,7 +70,7 @@ async def test_repository_creation_deduplication():
     async with TestingSessionLocal() as db:
         user = User(id=1, username="test_user", email="test@test.com", is_active=True, hashed_password="pw")
         user2 = User(id=2, username="test_user2", email="test2@test.com", is_active=True, hashed_password="pw")
-        repo = Repository(id=1, owner_id=1, name="test_repo", url="https://github.com/test/test_repo.git")
+        repo = Repository(id=1, owner_id=1, name="test_repo", url="https://github.com/test/test_repo")
         db.add_all([user, user2, repo])
         await db.commit()
         

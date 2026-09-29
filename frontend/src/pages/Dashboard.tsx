@@ -8,8 +8,7 @@ export default function Dashboard() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(localStorage.getItem('gitflow_active_repo') || null);
   const [history, setHistory] = useState<{ commit: string; score: number | null; date: string; scoreDelta: number | null; findingsCount?: number }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [needsSelection, setNeedsSelection] = useState(false);
-
+  
   const handleRepoChange = (e: any) => {
     localStorage.setItem('gitflow_active_repo', e.target.value);
     window.location.reload();
@@ -33,8 +32,7 @@ export default function Dashboard() {
                 setActiveRepoId(targetId);
                 localStorage.setItem('gitflow_active_repo', targetId as string);
             } else {
-                setNeedsSelection(true);
-                setLoading(false);
+                                setLoading(false);
                 return;
             }
         }
@@ -67,37 +65,17 @@ export default function Dashboard() {
     { title: 'Current Risk Score', value: history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'NO COMPLETED SCAN', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest Δ ${history[history.length - 1].scoreDelta! >= 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
   ];
 
-  if (needsSelection) {
-    return (
-      <div className="max-w-6xl mx-auto py-12 text-center">
-         <h2 className="text-2xl font-bold mb-4 text-slate-800 dark:text-white">Select a Repository</h2>
-         <select 
-           className="bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-md px-4 py-2 text-base outline-none"
-           onChange={handleRepoChange} 
-           defaultValue=""
-         >
-           <option value="" disabled>Select a repository...</option>
-           {repos.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-         </select>
-       </div>
-    );
-  }
+  
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
-      {repos.length > 1 && (
-        <div className="flex justify-end mb-4">
-          <select 
-            className="bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-md px-3 py-1.5 text-sm outline-none"
-            value={activeRepoId || ''}
-            onChange={handleRepoChange}
-          >
-            {repos.map(r => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
+      <div className="flex justify-between items-center mb-6 pt-6">
+        <h1 className="text-3xl font-bold">Dashboard</h1>
+        <button onClick={() => window.location.href = '/onboarding'} className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors shadow-sm font-medium">
+           + Add Repository
+        </button>
+      </div>
+      
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {stats.map((stat, i) => (
           <div key={i} className="p-6 rounded-xl border border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark shadow-soft dark:shadow-soft-dark">
@@ -143,7 +121,7 @@ export default function Dashboard() {
             <div className="p-6 text-center text-slate-500">No repositories connected. Go to Onboarding.</div>
           ) : (
             repos.map((repo: any) => (
-              <div key={repo.id} className="px-6 py-6 flex flex-col space-y-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+              <div key={repo.id} className={`px-6 py-6 flex flex-col space-y-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer ${activeRepoId === repo.id.toString() ? 'border-l-4 border-brand-500 bg-slate-50/50 dark:bg-slate-800/30' : ''}`} onClick={() => handleRepoChange({target: {value: repo.id.toString()}})}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
                     <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
@@ -172,22 +150,32 @@ export default function Dashboard() {
                     </button>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-border-light dark:border-border-dark">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-4 pt-4 border-t border-border-light dark:border-border-dark">
                   <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Monitoring Status</p>
-                    <p className="font-medium text-emerald-600 dark:text-emerald-400 flex items-center"><span className="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span> Active</p>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Owner</p>
+                    <p className="font-medium truncate">{repo.github_owner || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Visibility</p>
+                    <p className="font-medium">{repo.is_public ? 'Public' : 'Private'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Default Branch</p>
+                    <p className="font-medium truncate">{repo.default_branch || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Last Updated</p>
+                    <p className="font-medium text-sm truncate">{repo.github_updated_at ? new Date(repo.github_updated_at).toLocaleDateString() : 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Monitoring</p>
+                    <p className="font-medium text-emerald-600 dark:text-emerald-400 flex items-center">
+                      {repo.monitoring_enabled ? <><span className="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span> Active</> : 'Inactive'}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Current Risk Score</p>
-                    <p className="font-medium">{history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'NO COMPLETED SCAN'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Latest Commit</p>
-                    <p className="font-medium truncate max-w-[120px]">{history.length > 0 ? history[history.length - 1].commit : 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Open Findings</p>
-                    <p className="font-medium">{history.length > 0 ? history[history.length - 1].findingsCount !== undefined ? history[history.length - 1].findingsCount : "0" : "N/A"}</p>
+                    <p className="font-medium">{activeRepoId === repo.id.toString() && history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'Select to view'}</p>
                   </div>
                 </div>
               </div>

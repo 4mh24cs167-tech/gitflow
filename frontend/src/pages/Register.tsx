@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Shield, GitBranch } from 'lucide-react';
+import { Shield } from 'lucide-react';
 import { apiClient } from '../config';
 
 export default function Register() {
@@ -44,20 +44,6 @@ export default function Register() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Start securing your software supply chain</p>
         </div>
 
-        <a href={`/auth/github/login`} className="w-full mb-6 flex items-center justify-center px-4 py-2.5 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-medium text-sm">
-          <GitBranch className="w-5 h-5 mr-2" />
-          Sign up with GitHub
-        </a>
-
-        <div className="relative mb-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-border-light dark:border-border-dark"></div>
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="px-2 bg-surface-light dark:bg-surface-dark text-slate-500">Or sign up with email</span>
-          </div>
-        </div>
-        
         {error && <div className="mb-4 text-red-500 text-sm text-center">{error}</div>}
 
         <form onSubmit={handleSubmit} className="space-y-4">
