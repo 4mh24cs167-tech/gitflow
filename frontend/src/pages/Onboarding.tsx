@@ -1,19 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
-import { GitBranch, CheckCircle2, ChevronRight, Loader2, GitFork, Shield, Search, AlertCircle } from 'lucide-react';
+import { GitBranch, CheckCircle2, ChevronRight, Loader2, GitFork, Shield, Search, AlertCircle, Lock, Globe } from 'lucide-react';
 import { apiClient } from '../config';
 
 export default function Onboarding() {
   const [step, setStep] = useState(1);
   const [scanning, setScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState<string | null>(null);
-  
   const [scannedSha, setScannedSha] = useState<string | null>(null);
   const [repos, setRepos] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [repoId, setRepoId] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   const pollingRef = useRef<any>(null);
+  const consecutiveErrorsRef = useRef(0);
+  const startPollingTimeRef = useRef<number>(0);
 
   useEffect(() => {
     return () => {
@@ -23,26 +25,54 @@ export default function Onboarding() {
     };
   }, []);
 
+  const fetchScanStatus = async (repository_id: number, currentScanId: number) => {
+    try {
+      const res = await apiClient.get(`/repositories/${repository_id}/scans/${currentScanId}`);
+      consecutiveErrorsRef.current = 0;
+      
+      const status = res.data.status;
+      setScanStatus(status);
+      if (res.data.commit_sha && res.data.commit_sha !== "HEAD") {
+          setScannedSha(res.data.commit_sha.substring(0, 7));
+      }
+
+      if (status === 'COMPLETED' || status === 'FAILED') {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        setScanning(false);
+      }
+    } catch (err) {
+      console.error("Failed to poll scan status", err);
+      consecutiveErrorsRef.current += 1;
+      
+      if (consecutiveErrorsRef.current >= 5) {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        setScanning(false);
+        setScanStatus('POLLING_ERROR');
+        setErrorMsg("Unable to retrieve scan status. The scan may still be running.");
+      }
+    }
+  };
+
   const pollScanStatus = (repository_id: number, currentScanId: number) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
     
-    pollingRef.current = setInterval(async () => {
-      try {
-        const res = await apiClient.get(`/repositories/${repository_id}/scans/${currentScanId}`);
-        const status = res.data.status;
-        setScanStatus(status);
-        if (res.data.commit_sha && res.data.commit_sha !== "HEAD") {
-            setScannedSha(res.data.commit_sha.substring(0, 7));
-        }
-
-        if (status === 'COMPLETED' || status === 'FAILED') {
-          clearInterval(pollingRef.current);
-          setScanning(false);
-        }
-      } catch (err) {
-        console.error("Failed to poll scan status", err);
-        // Do not fail immediately on a single network glitch, just log it.
+    consecutiveErrorsRef.current = 0;
+    startPollingTimeRef.current = Date.now();
+    
+    // Initial fetch
+    fetchScanStatus(repository_id, currentScanId);
+    
+    pollingRef.current = setInterval(() => {
+      // 10 minutes timeout
+      if (Date.now() - startPollingTimeRef.current > 10 * 60 * 1000) {
+        clearInterval(pollingRef.current);
+        setScanning(false);
+        setScanStatus('TIMEOUT');
+        setErrorMsg("Scan is taking longer than expected.");
+        return;
       }
+      
+      fetchScanStatus(repository_id, currentScanId);
     }, 1500);
   };
 
@@ -50,12 +80,18 @@ export default function Onboarding() {
     setStep(2);
     setLoadingRepos(true);
     setErrorMsg(null);
+    setSearchQuery('');
     try {
       const res = await apiClient.get(`/repositories/github`);
       setRepos(res.data);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      // In case of error (e.g. no token), we stay on step 2 but show empty
+      setRepos([]);
+      if (e?.response?.status === 409 || e?.response?.status === 401) {
+          setErrorMsg("GitHub authentication required. Please ensure your account is linked.");
+      } else {
+          setErrorMsg("Failed to load GitHub repositories.");
+      }
     } finally {
       setLoadingRepos(false);
     }
@@ -66,9 +102,10 @@ export default function Onboarding() {
     setScanning(true);
     setScanStatus('QUEUED');
     setErrorMsg(null);
+    setScannedSha(null);
     
     try {
-      // 1. Create repo in DB
+      // 1. Create repo in DB (deduplicates by owner and url automatically in backend)
       const createRes = await apiClient.post(`/repositories/`, {
         name: repo.name,
         url: repo.url
@@ -82,7 +119,6 @@ export default function Onboarding() {
       const scanRes = await apiClient.post(`/repositories/${repository_id}/scan`, { commit_sha: "HEAD" });
       const newScanId = scanRes.data.scan_id;
       
-      
       // 3. Poll for status
       pollScanStatus(repository_id, newScanId);
       
@@ -93,6 +129,34 @@ export default function Onboarding() {
       setErrorMsg(e?.response?.data?.detail || "An error occurred while communicating with the server.");
     }
   };
+
+  const handleRetry = async () => {
+    if (!repoId) return;
+    setScanning(true);
+    setScanStatus('QUEUED');
+    setErrorMsg(null);
+    setScannedSha(null);
+    
+    try {
+      const scanRes = await apiClient.post(`/repositories/${repoId}/scan`, { commit_sha: "HEAD" });
+      const newScanId = scanRes.data.scan_id;
+      pollScanStatus(repoId, newScanId);
+    } catch(e: any) {
+      console.error("Failed to retry scan", e);
+      setScanning(false);
+      setScanStatus('FAILED');
+      setErrorMsg(e?.response?.data?.detail || "An error occurred while communicating with the server.");
+    }
+  };
+
+  const filteredRepos = repos.filter(repo => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      repo.name?.toLowerCase().includes(q) ||
+      repo.language?.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="max-w-4xl mx-auto py-8">
@@ -136,7 +200,7 @@ export default function Onboarding() {
               onClick={handleConnect}
               className="flex items-center px-6 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-medium rounded-lg hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
             >
-              Continue to GitHub
+              Load GitHub Repositories
               <ChevronRight className="w-4 h-4 ml-2" />
             </button>
           </div>
@@ -145,37 +209,71 @@ export default function Onboarding() {
         {step === 2 && (
           <div className="p-8">
             <h2 className="text-xl font-bold mb-6">Select a Repository</h2>
+            {errorMsg ? (
+              <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg mb-6 flex items-center">
+                <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+                <p>{errorMsg}</p>
+              </div>
+            ) : null}
             <div className="mb-6 relative">
               <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input 
                 type="text" 
                 placeholder="Search repositories..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-slate-50 dark:bg-slate-900 border border-border-light dark:border-border-dark rounded-lg pl-10 pr-4 py-2 outline-none focus:border-brand-500 transition-colors"
               />
             </div>
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
               {loadingRepos ? (
-                <div className="py-12 flex justify-center">
-                  <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+                <div className="py-12 flex flex-col items-center justify-center text-slate-500">
+                  <Loader2 className="w-8 h-8 text-brand-500 animate-spin mb-4" />
+                  <p>Loading repositories from GitHub...</p>
                 </div>
-              ) : repos.map((repo: any) => (
-                <div 
-                  key={repo.id}
-                  onClick={() => handleSelect(repo)}
-                  className="flex items-center p-4 rounded-xl border border-border-light dark:border-border-dark hover:border-brand-500 dark:hover:border-brand-500 cursor-pointer transition-colors group"
-                >
-                  <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center mr-4 group-hover:bg-brand-50 dark:group-hover:bg-brand-900/20">
-                    <GitFork className="w-5 h-5 text-slate-600 dark:text-slate-400 group-hover:text-brand-500" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <h3 className="font-semibold text-slate-900 dark:text-white">{repo.name}</h3>
-                    <p className="text-sm text-slate-500">Last updated {new Date().toLocaleDateString()}</p>
-                  </div>
-                  <div className="w-8 h-8 rounded-full border border-border-light dark:border-border-dark flex items-center justify-center group-hover:border-brand-500 group-hover:bg-brand-500 group-hover:text-white transition-colors">
-                    <ChevronRight className="w-4 h-4" />
-                  </div>
+              ) : repos.length === 0 && !errorMsg ? (
+                <div className="py-12 text-center text-slate-500 dark:text-slate-400">
+                  <p>No repositories found.</p>
                 </div>
-              ))}
+              ) : filteredRepos.length === 0 && repos.length > 0 ? (
+                <div className="py-12 text-center text-slate-500 dark:text-slate-400">
+                  <p>No repositories match your search.</p>
+                </div>
+              ) : (
+                filteredRepos.map((repo: any) => (
+                  <div 
+                    key={repo.id}
+                    onClick={() => handleSelect(repo)}
+                    className="flex items-center p-4 rounded-xl border border-border-light dark:border-border-dark hover:border-brand-500 dark:hover:border-brand-500 cursor-pointer transition-colors group"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center mr-4 group-hover:bg-brand-50 dark:group-hover:bg-brand-900/20">
+                      <GitFork className="w-5 h-5 text-slate-600 dark:text-slate-400 group-hover:text-brand-500" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <div className="flex items-center space-x-2">
+                        <h3 className="font-semibold text-slate-900 dark:text-white">{repo.name}</h3>
+                        {repo.private ? <Lock className="w-3 h-3 text-slate-400" /> : <Globe className="w-3 h-3 text-slate-400" />}
+                      </div>
+                      <div className="flex items-center space-x-3 mt-1">
+                        {repo.language && (
+                          <span className="text-xs font-medium px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full">
+                            {repo.language}
+                          </span>
+                        )}
+                        <span className="text-xs text-slate-500">
+                          {repo.default_branch && `Branch: ${repo.default_branch}`}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {repo.updated_at ? `Updated: ${new Date(repo.updated_at).toLocaleDateString()}` : "Updated date unavailable"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="w-8 h-8 rounded-full border border-border-light dark:border-border-dark flex items-center justify-center group-hover:border-brand-500 group-hover:bg-brand-500 group-hover:text-white transition-colors">
+                      <ChevronRight className="w-4 h-4" />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -223,10 +321,54 @@ export default function Onboarding() {
                     Return to Repository
                   </button>
                   <button 
-                    onClick={() => handleSelect({ name: repos.find((r:any) => r.id === repoId)?.name || "Retry Repo", url: repos.find((r:any) => r.id === repoId)?.url || "" })}
+                    onClick={handleRetry}
                     className="px-6 py-3 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 transition-colors shadow-lg shadow-brand-500/25"
                   >
                     Retry Scan
+                  </button>
+                </div>
+              </>
+            ) : scanStatus === 'POLLING_ERROR' ? (
+              <>
+                <div className="w-24 h-24 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-500 flex items-center justify-center mb-6">
+                  <AlertCircle className="w-12 h-12" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Connection Lost</h2>
+                <p className="text-slate-500 dark:text-slate-400 mb-8">{errorMsg}</p>
+                <div className="flex space-x-4">
+                  <button 
+                    onClick={() => { setStep(2); setScanning(false); setScanStatus(null); }}
+                    className="px-6 py-3 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    Return to Repository
+                  </button>
+                  <button 
+                    onClick={handleRetry}
+                    className="px-6 py-3 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 transition-colors shadow-lg shadow-brand-500/25"
+                  >
+                    Retry Status
+                  </button>
+                </div>
+              </>
+            ) : scanStatus === 'TIMEOUT' ? (
+              <>
+                <div className="w-24 h-24 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-500 flex items-center justify-center mb-6">
+                  <AlertCircle className="w-12 h-12" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Scan Timeout</h2>
+                <p className="text-slate-500 dark:text-slate-400 mb-8">{errorMsg}</p>
+                <div className="flex space-x-4">
+                  <button 
+                    onClick={handleRetry}
+                    className="px-6 py-3 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    Check Again
+                  </button>
+                  <button 
+                    onClick={() => window.location.href = '/dashboard'}
+                    className="px-6 py-3 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 transition-colors shadow-lg shadow-brand-500/25"
+                  >
+                    Go to Dashboard
                   </button>
                 </div>
               </>

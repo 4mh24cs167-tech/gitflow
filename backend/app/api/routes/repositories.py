@@ -119,7 +119,7 @@ async def list_github_repositories(current_user: User = Depends(get_current_user
     # Securely discard plain token
     del plain_token
     
-    return [{"id": r["id"], "name": r["full_name"], "url": r["clone_url"], "language": r.get("language")} for r in response.json()]
+    return [{"id": r["id"], "name": r["full_name"], "url": r["clone_url"], "language": r.get("language"), "updated_at": r.get("updated_at"), "created_at": r.get("created_at"), "default_branch": r.get("default_branch"), "private": r.get("private")} for r in response.json()]
 
 @router.post("/{repository_id}/scan")
 async def trigger_manual_scan(repository_id: int, request: ScanRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
