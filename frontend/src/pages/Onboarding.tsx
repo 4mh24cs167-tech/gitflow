@@ -7,6 +7,7 @@ export default function Onboarding() {
   const [scanning, setScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState<string | null>(null);
   const [scannedSha, setScannedSha] = useState<string | null>(null);
+  const [scanId, setScanId] = useState<number | null>(null);
   const [repos, setRepos] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingRepos, setLoadingRepos] = useState(false);
@@ -36,34 +37,38 @@ export default function Onboarding() {
           setScannedSha(res.data.commit_sha.substring(0, 7));
       }
 
-      if (status === 'COMPLETED' || status === 'FAILED') {
-        if (pollingRef.current) clearInterval(pollingRef.current);
-        setScanning(false);
-      }
+      return status;
     } catch (err) {
       console.error("Failed to poll scan status", err);
       consecutiveErrorsRef.current += 1;
       
       if (consecutiveErrorsRef.current >= 5) {
-        if (pollingRef.current) clearInterval(pollingRef.current);
         setScanning(false);
         setScanStatus('POLLING_ERROR');
         setErrorMsg("Unable to retrieve scan status. The scan may still be running.");
+        return 'POLLING_ERROR';
       }
+      return null;
     }
   };
 
-  const pollScanStatus = (repository_id: number, currentScanId: number) => {
+  const pollScanStatus = async (repository_id: number, currentScanId: number) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
     
     consecutiveErrorsRef.current = 0;
     startPollingTimeRef.current = Date.now();
     
     // Initial fetch
-    fetchScanStatus(repository_id, currentScanId);
+    const initialStatus = await fetchScanStatus(repository_id, currentScanId);
     
-    pollingRef.current = setInterval(() => {
-      // 10 minutes timeout
+    if (initialStatus === 'COMPLETED' || initialStatus === 'FAILED' || initialStatus === 'POLLING_ERROR') {
+      if (initialStatus === 'COMPLETED' || initialStatus === 'FAILED') {
+        setScanning(false);
+      }
+      return; // Do not create an interval
+    }
+    
+    pollingRef.current = setInterval(async () => {
       if (Date.now() - startPollingTimeRef.current > 10 * 60 * 1000) {
         clearInterval(pollingRef.current);
         setScanning(false);
@@ -72,7 +77,13 @@ export default function Onboarding() {
         return;
       }
       
-      fetchScanStatus(repository_id, currentScanId);
+      const status = await fetchScanStatus(repository_id, currentScanId);
+      if (status === 'COMPLETED' || status === 'FAILED' || status === 'POLLING_ERROR') {
+        clearInterval(pollingRef.current);
+        if (status === 'COMPLETED' || status === 'FAILED') {
+          setScanning(false);
+        }
+      }
     }, 1500);
   };
 
@@ -118,6 +129,7 @@ export default function Onboarding() {
       // 2. Trigger initial scan
       const scanRes = await apiClient.post(`/repositories/${repository_id}/scan`, { commit_sha: "HEAD" });
       const newScanId = scanRes.data.scan_id;
+      setScanId(newScanId);
       
       // 3. Poll for status
       pollScanStatus(repository_id, newScanId);
@@ -130,7 +142,7 @@ export default function Onboarding() {
     }
   };
 
-  const handleRetry = async () => {
+  const handleRetryScan = async () => {
     if (!repoId) return;
     setScanning(true);
     setScanStatus('QUEUED');
@@ -140,6 +152,7 @@ export default function Onboarding() {
     try {
       const scanRes = await apiClient.post(`/repositories/${repoId}/scan`, { commit_sha: "HEAD" });
       const newScanId = scanRes.data.scan_id;
+      setScanId(newScanId);
       pollScanStatus(repoId, newScanId);
     } catch(e: any) {
       console.error("Failed to retry scan", e);
@@ -147,6 +160,14 @@ export default function Onboarding() {
       setScanStatus('FAILED');
       setErrorMsg(e?.response?.data?.detail || "An error occurred while communicating with the server.");
     }
+  };
+
+  const handleRetryStatus = () => {
+    if (!repoId || !scanId) return;
+    setScanning(true);
+    setScanStatus('QUEUED'); // Resets UI to loading while we fetch
+    setErrorMsg(null);
+    pollScanStatus(repoId, scanId);
   };
 
   const filteredRepos = repos.filter(repo => {
@@ -321,7 +342,7 @@ export default function Onboarding() {
                     Return to Repository
                   </button>
                   <button 
-                    onClick={handleRetry}
+                    onClick={handleRetryScan}
                     className="px-6 py-3 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 transition-colors shadow-lg shadow-brand-500/25"
                   >
                     Retry Scan
@@ -343,7 +364,7 @@ export default function Onboarding() {
                     Return to Repository
                   </button>
                   <button 
-                    onClick={handleRetry}
+                    onClick={handleRetryStatus}
                     className="px-6 py-3 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 transition-colors shadow-lg shadow-brand-500/25"
                   >
                     Retry Status
@@ -359,7 +380,7 @@ export default function Onboarding() {
                 <p className="text-slate-500 dark:text-slate-400 mb-8">{errorMsg}</p>
                 <div className="flex space-x-4">
                   <button 
-                    onClick={handleRetry}
+                    onClick={handleRetryStatus}
                     className="px-6 py-3 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
                   >
                     Check Again
