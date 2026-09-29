@@ -29,7 +29,8 @@ class Repository(Base):
     is_public = Column(Boolean, default=True)
     github_created_at = Column(DateTime(timezone=True), nullable=True)
     github_updated_at = Column(DateTime(timezone=True), nullable=True)
-    monitoring_enabled = Column(Boolean, default=True)
+    monitoring_enabled = Column(Boolean, default=False)
+    monitoring_status = Column(String, default="NOT_CONFIGURED")
 
     owner = relationship("User", back_populates="repositories")
     commits = relationship("Commit", back_populates="repository", cascade="all, delete-orphan")

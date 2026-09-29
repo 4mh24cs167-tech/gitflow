@@ -170,7 +170,7 @@ export default function Dashboard() {
                   <div>
                     <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Monitoring</p>
                     <p className="font-medium text-emerald-600 dark:text-emerald-400 flex items-center">
-                      {repo.monitoring_enabled ? <><span className="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span> Active</> : 'Inactive'}
+                      {repo.monitoring_status ? repo.monitoring_status.replace('_', ' ') : 'NOT CONFIGURED'}
                     </p>
                   </div>
                   <div>

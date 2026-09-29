@@ -6,11 +6,18 @@ from app.api.routes import auth, repositories, webhooks, notifications
 # import models to ensure they are registered with Base metadata
 from app.database import models
 
+import asyncio
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Tables are now managed by Alembic migrations
+    from app.workers.polling import repository_polling_loop
+    task = asyncio.create_task(repository_polling_loop())
     yield
-    # Shutdown event
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
     await engine.dispose()
 
 app = FastAPI(title="Software Risk Passport", lifespan=lifespan)

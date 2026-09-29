@@ -18,7 +18,8 @@ class RepositoryResponse(RepositoryBase):
     is_public: Optional[bool] = True
     github_created_at: Optional[datetime] = None
     github_updated_at: Optional[datetime] = None
-    monitoring_enabled: Optional[bool] = True
+    monitoring_enabled: Optional[bool] = False
+    monitoring_status: Optional[str] = "NOT_CONFIGURED"
 
     class Config:
         from_attributes = True

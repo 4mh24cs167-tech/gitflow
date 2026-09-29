@@ -1,5 +1,6 @@
 import re
 from urllib.parse import urlparse
+from app.utils.github import get_canonical_github_url
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from jose import JWTError, jwt
@@ -20,26 +21,7 @@ class ScanRequest(BaseModel):
 router = APIRouter(prefix="/repositories", tags=["repositories"])
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
-def validate_github_url(value: str) -> tuple[str, str, str]:
-    parsed = urlparse(value)
-    if parsed.scheme != "https" or parsed.hostname not in {"github.com", "www.github.com"}:
-        raise HTTPException(status_code=422, detail="Only HTTPS github.com repository URLs are supported")
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise HTTPException(status_code=422, detail="Invalid repository URL. Credentials, query strings, and fragments are not allowed.")
-    
-    path = parsed.path.strip("/")
-    if path.endswith(".git"):
-        path = path[:-4]
-    path = path.strip("/")
-    
-    parts = path.split("/")
-    if len(parts) != 2:
-        raise HTTPException(status_code=422, detail="Invalid repository URL. Must be in the format https://github.com/owner/repository")
-    
-    owner, repo_name = parts[0], parts[1]
-    # Canonical URL
-    canonical_url = f"https://github.com/{owner}/{repo_name}"
-    return canonical_url, owner, repo_name
+
 
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)):
     authorization = request.headers.get("authorization", "")
@@ -107,7 +89,7 @@ def parse_date(d: str):
     return datetime.fromisoformat(d.replace('Z', '+00:00'))
 @router.post("/", response_model=RepositoryResponse)
 async def create_repository(repo: RepositoryCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    canonical_url, owner, repo_name = validate_github_url(repo.url)
+    canonical_url, owner, repo_name = get_canonical_github_url(repo.url)
     existing = (await db.execute(select(Repository).where(Repository.owner_id == current_user.id, Repository.url == canonical_url))).scalars().first()
     if existing: return existing
     
@@ -141,7 +123,7 @@ async def create_repository(repo: RepositoryCreate, current_user: User = Depends
                 is_public=not data.get("private"),
                 github_created_at=parse_date(data.get("created_at")) if data.get("created_at") else None,
                 github_updated_at=parse_date(data.get("updated_at")) if data.get("updated_at") else None,
-                monitoring_enabled=True
+                monitoring_enabled=True, monitoring_status="POLLING_ACTIVE"
             )
             db.add(db_repo)
             await db.commit()

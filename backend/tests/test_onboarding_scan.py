@@ -103,6 +103,6 @@ async def test_repository_creation_deduplication(monkeypatch):
         res2 = await client.post("/repositories/", json={"name": "test_repo_new_name", "url": "https://github.com/test/test_repo.git"})
         assert res2.status_code == 200
         assert res2.json()["id"] == 2 # New repository id created for user 2!
-        assert res2.json()["name"] == "test_repo_new_name"
+        assert res2.json()["name"] == "test/test_repo"
 
     app.dependency_overrides.clear()

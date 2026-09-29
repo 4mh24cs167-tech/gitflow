@@ -1,3 +1,4 @@
+from app.utils.github import get_canonical_github_url
 import hmac
 import hashlib
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Depends
@@ -42,7 +43,7 @@ async def github_webhook(
         
         if repo_url and commit_sha:
             # Find repository by url
-            result = await db.execute(select(Repository).where(Repository.url == repo_url))
+            result = await db.execute(select(Repository).where(Repository.url == canonical_url))
             repo = result.scalars().first()
             if repo:
                 owner = (await db.execute(select(User).where(User.id == repo.owner_id))).scalars().first()
