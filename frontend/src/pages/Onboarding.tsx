@@ -165,7 +165,7 @@ export default function Onboarding() {
   const handleRetryStatus = () => {
     if (!repoId || !scanId) return;
     setScanning(true);
-    setScanStatus('QUEUED'); // Resets UI to loading while we fetch
+    setScanStatus(null);
     setErrorMsg(null);
     pollScanStatus(repoId, scanId);
   };
