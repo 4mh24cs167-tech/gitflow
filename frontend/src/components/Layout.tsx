@@ -2,8 +2,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { Shield, LayoutDashboard, GitBranch, Moon, Sun, Settings, LogOut, Bell } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
-import { API_URL } from '../config';
+import { apiClient } from '../config';
 
 export default function Layout() {
   const { theme, toggleTheme } = useTheme();
@@ -21,7 +20,7 @@ export default function Layout() {
   useEffect(() => {
     const fetchNotifications = async () => {
       try {
-        const res = await axios.get(`${API_URL}/notifications`, { withCredentials: true });
+        const res = await apiClient.get(`/notifications`);
         setNotifications(res.data);
       } catch (e) {
         console.error("Failed to fetch notifications", e);
@@ -46,7 +45,7 @@ export default function Layout() {
   const markAsRead = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await axios.put(`${API_URL}/notifications/${id}/read`, {}, { withCredentials: true });
+      await apiClient.put(`/notifications/${id}/read`, {});
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
     } catch (e) {
       console.error("Failed to mark as read", e);

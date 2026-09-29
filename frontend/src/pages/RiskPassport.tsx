@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { apiClient } from '../config';
 import { Shield, GitCommit, CheckCircle, ShieldAlert, Activity } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function RiskPassport() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [repo, setRepo] = useState<any>(null);
+  const [repos, setRepos] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [latestScan, setLatestScan] = useState<any>(null);
 
@@ -17,22 +17,29 @@ export default function RiskPassport() {
       try {
         setLoading(true);
         // 1. Get repos
-        const repoRes = await axios.get(`${API_URL}/repositories/`, { withCredentials: true });
+        const repoRes = await apiClient.get(`/repositories/`);
         if (repoRes.data.length === 0) {
           setLoading(false);
           return;
         }
-        const activeRepo = repoRes.data[0];
+        
+        let targetId = localStorage.getItem('gitflow_active_repo');
+        let activeRepo = repoRes.data.find((r: any) => r.id.toString() === targetId);
+        if (!activeRepo) {
+            activeRepo = repoRes.data[0];
+            localStorage.setItem('gitflow_active_repo', activeRepo.id.toString());
+        }
         setRepo(activeRepo);
+        setRepos(repoRes.data);
 
         // 2. Get history
-        const histRes = await axios.get(`${API_URL}/repositories/${activeRepo.id}/risk-history`, { withCredentials: true });
+        const histRes = await apiClient.get(`/repositories/${activeRepo.id}/risk-history`);
         setHistory(histRes.data);
 
         // 3. Get latest scan if exists
         if (histRes.data.length > 0) {
           const latest = histRes.data[histRes.data.length - 1];
-          const scanRes = await axios.get(`${API_URL}/repositories/${activeRepo.id}/scans/${latest.id}`, { withCredentials: true });
+          const scanRes = await apiClient.get(`/repositories/${activeRepo.id}/scans/${latest.id}`);
           setLatestScan(scanRes.data);
         }
         setLoading(false);
@@ -68,8 +75,26 @@ export default function RiskPassport() {
     score: h.risk_score
   }));
 
+  const handleRepoChange = (e: any) => {
+    localStorage.setItem('gitflow_active_repo', e.target.value);
+    window.location.reload();
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
+      <div className="flex justify-end mb-2">
+        {repos.length > 1 && (
+          <select 
+            className="bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-md px-3 py-1.5 text-sm outline-none"
+            value={repo.id.toString()}
+            onChange={handleRepoChange}
+          >
+            {repos.map((r: any) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        )}
+      </div>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-800 dark:text-white flex items-center">
@@ -94,7 +119,7 @@ export default function RiskPassport() {
         <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-6 shadow-soft">
           <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-4">Current Risk</h3>
           <div className="flex items-end space-x-4">
-            <span className="text-6xl font-bold text-slate-800 dark:text-white">{risk_score !== null ? risk_score : 'N/A'}</span>
+            <span className="text-6xl font-bold text-slate-800 dark:text-white">{status === 'FAILED' ? 'SCAN FAILED' : risk_score !== null ? risk_score : 'UNAVAILABLE'}</span>
             <div className="pb-2">
               <span className="text-sm text-slate-500 block">out of 100</span>
               {score_delta !== null && (

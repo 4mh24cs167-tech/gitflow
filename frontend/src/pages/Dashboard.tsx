@@ -1,26 +1,29 @@
-import { API_URL } from '../config';
 import { useEffect, useState } from 'react';
 import { GitCommit } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import axios from 'axios';
+import { apiClient } from '../config';
 
 export default function Dashboard() {
   const [repos, setRepos] = useState<any[]>([]);
+  const [activeRepoId, setActiveRepoId] = useState<string | null>(localStorage.getItem('gitflow_active_repo') || null);
   const [history, setHistory] = useState<{ commit: string; score: number | null; date: string; scoreDelta: number | null; findingsCount?: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchRepos = async () => {
       try {
-        const res = await axios.get(`${API_URL}/repositories/`, {
-          withCredentials: true
-        });
+        const res = await apiClient.get(`/repositories/`);
         setRepos(res.data);
         
-        if (res.data.length > 0) {
-           const historyRes = await axios.get(`${API_URL}/repositories/${res.data[0].id}/risk-history`, {
-             withCredentials: true
-           });
+        let targetId = activeRepoId;
+        if (res.data.length > 0 && !res.data.find((r: any) => r.id.toString() === targetId)) {
+            targetId = res.data[0].id.toString();
+            setActiveRepoId(targetId);
+            localStorage.setItem('gitflow_active_repo', targetId as string);
+        }
+        
+        if (targetId) {
+           const historyRes = await apiClient.get(`/repositories/${targetId}/risk-history`);
            const chartData = historyRes.data.map((h: any) => ({
              scanId: h.id,
                findingsCount: h.findings_count,
@@ -42,13 +45,33 @@ export default function Dashboard() {
     fetchRepos();
   }, []);
 
+  const handleRepoChange = (e: any) => {
+    const id = e.target.value;
+    setActiveRepoId(id);
+    localStorage.setItem('gitflow_active_repo', id);
+    window.location.reload();
+  };
+
   const stats = [
     { title: 'Total Repositories', value: repos.length, change: '', trend: 'neutral' },
-    { title: 'Average Risk Score', value: history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'N/A', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest Δ ${history[history.length - 1].scoreDelta! >= 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
+    { title: 'Average Risk Score', value: history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'NO COMPLETED SCAN', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest Δ ${history[history.length - 1].scoreDelta! >= 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
   ];
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
+      {repos.length > 1 && (
+        <div className="flex justify-end mb-4">
+          <select 
+            className="bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-md px-3 py-1.5 text-sm outline-none"
+            value={activeRepoId || ''}
+            onChange={handleRepoChange}
+          >
+            {repos.map(r => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {stats.map((stat, i) => (
           <div key={i} className="p-6 rounded-xl border border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark shadow-soft dark:shadow-soft-dark">
@@ -101,7 +124,7 @@ export default function Dashboard() {
                       <GitCommit className="w-5 h-5 text-slate-500" />
                     </div>
                     <div>
-                      <h4 className="font-medium text-lg cursor-pointer hover:text-brand-500 transition-colors" onClick={() => window.location.href=`/repositories/${repo.id}`}>{repo.name}</h4>
+                      <h4 className="font-medium text-lg cursor-pointer hover:text-brand-500 transition-colors" onClick={() => {}}>{repo.name}</h4>
                       <p className="text-sm text-slate-500">{repo.url}</p>
                     </div>
                   </div>
@@ -110,7 +133,7 @@ export default function Dashboard() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         try {
-                          await axios.post(`${API_URL}/repositories/${repo.id}/scan`, { commit_sha: "HEAD" }, { withCredentials: true });
+                          await apiClient.post(`/repositories/${repo.id}/scan`, { commit_sha: "HEAD" });
                           alert('Scan initiated for HEAD');
                         } catch (err) {
                           console.error(err);
@@ -130,7 +153,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Current Risk Score</p>
-                    <p className="font-medium">{history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'N/A'}</p>
+                    <p className="font-medium">{history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'NO COMPLETED SCAN'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Latest Commit</p>

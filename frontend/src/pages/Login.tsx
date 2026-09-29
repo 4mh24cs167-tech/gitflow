@@ -1,8 +1,7 @@
-import { API_URL } from '../config';
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Shield, GitBranch } from 'lucide-react';
-import axios from 'axios';
+import { apiClient } from '../config';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -17,7 +16,7 @@ export default function Login() {
       formData.append('username', username);
       formData.append('password', password);
       
-      const res = await axios.post(`${API_URL}/auth/login`, formData);
+      const res = await apiClient.post(`/auth/login`, formData);
       localStorage.setItem('access_token', res.data.access_token);
       navigate('/dashboard');
     } catch (err: any) {
@@ -38,7 +37,7 @@ export default function Login() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Sign in to your account to continue</p>
         </div>
 
-        <a href={`${API_URL}/auth/github/login`} className="w-full mb-6 flex items-center justify-center px-4 py-2.5 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-medium text-sm">
+        <a href={`/auth/github/login`} className="w-full mb-6 flex items-center justify-center px-4 py-2.5 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-medium text-sm">
           <GitBranch className="w-5 h-5 mr-2" />
           Continue with GitHub
         </a>

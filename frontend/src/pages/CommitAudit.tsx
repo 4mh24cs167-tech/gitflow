@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { GitCommit, ShieldAlert, AlertTriangle, FileText, ArrowUpRight, ArrowDownRight, MessageSquare, Shield, Activity, Zap } from 'lucide-react';
-import axios from 'axios';
-import { API_URL } from '../config';
+import { apiClient } from '../config';
 
 export default function CommitAudit() {
   const { repositoryId, scanId } = useParams();
@@ -21,7 +20,7 @@ export default function CommitAudit() {
     }
     const fetchData = async () => {
       try {
-        const res = await axios.get(`${API_URL}/repositories/${repositoryId}/scans/${scanId}`, { withCredentials: true });
+        const res = await apiClient.get(`/repositories/${repositoryId}/scans/${scanId}`);
         setData(res.data);
       } catch (err: any) {
         setError(err.response?.data?.detail || 'Failed to load audit data');
@@ -38,7 +37,7 @@ export default function CommitAudit() {
     setPromptMsg('');
     setAsking(true);
     try {
-      const res = await axios.post(`${API_URL}/repositories/${repositoryId}/scans/${scanId}/ask`, { question }, { withCredentials: true });
+      const res = await apiClient.post(`/repositories/${repositoryId}/scans/${scanId}/ask`, { question });
       setChatLog(prev => [...prev, { role: 'ai', text: res.data.answer }]);
     } catch (err) {
       setChatLog(prev => [...prev, { role: 'ai', text: 'Error fetching explanation.' }]);

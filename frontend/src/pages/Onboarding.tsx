@@ -1,7 +1,6 @@
-import { API_URL } from '../config';
 import { useState, useEffect } from 'react';
 import { GitBranch, CheckCircle2, ChevronRight, Loader2, GitFork, Shield, Search } from 'lucide-react';
-import axios from 'axios';
+import { apiClient } from '../config';
 
 export default function Onboarding() {
   const [step, setStep] = useState(1);
@@ -30,9 +29,7 @@ export default function Onboarding() {
     setStep(2);
     setLoadingRepos(true);
     try {
-      const res = await axios.get(`${API_URL}/repositories/github`, {
-        withCredentials: true
-      });
+      const res = await apiClient.get(`/repositories/github`);
       setRepos(res.data);
     } catch (e) {
       console.error(e);
@@ -48,17 +45,15 @@ export default function Onboarding() {
     
     try {
       // 1. Create repo in DB
-      const createRes = await axios.post(`${API_URL}/repositories/`, {
+      const createRes = await apiClient.post(`/repositories/`, {
         name: repo.name,
         url: repo.url
-      }, {
-        withCredentials: true
       });
       
       const repository_id = createRes.data.id;
       
       // 2. Trigger initial scan
-      await axios.post(`${API_URL}/repositories/${repository_id}/scan`, { commit_sha: "HEAD" }, { withCredentials: true });
+      await apiClient.post(`/repositories/${repository_id}/scan`, { commit_sha: "HEAD" });
       
     } catch(e) {
       console.error("Failed to connect repo and scan", e);

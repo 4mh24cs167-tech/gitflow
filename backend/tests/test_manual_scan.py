@@ -8,12 +8,18 @@ client = TestClient(app)
 async def mock_get_current_user():
     return User(id=1, username="test_user")
 
-app.dependency_overrides[get_current_user] = mock_get_current_user
+
 
 import unittest
 from unittest.mock import AsyncMock, patch
 
 class TestManualScanRoute(unittest.TestCase):
+    def setUp(self):
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+        
+    def tearDown(self):
+        app.dependency_overrides.clear()
+
     @patch('app.api.routes.repositories.owned_repository', new_callable=AsyncMock)
     @patch('app.api.routes.repositories.queue_scan', new_callable=AsyncMock)
     def test_no_422(self, mock_queue, mock_owned):

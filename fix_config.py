@@ -1,4 +1,5 @@
-import axios from 'axios';
+with open("frontend/src/config.ts", "w", encoding="utf-8") as f:
+    f.write("""import axios from 'axios';
 
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -13,3 +14,4 @@ apiClient.interceptors.request.use((config) => {
   }
   return config;
 });
+""")
