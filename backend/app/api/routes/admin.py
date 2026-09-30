@@ -94,44 +94,49 @@ def resolve_remote_head(url: str) -> str | None:
 
 async def fetch_missing_commits(
     owner: str, repo_name: str, default_branch: str, last_processed_sha: str | None, max_commits: int
-) -> list[dict]:
+) -> dict:
     import httpx
-    commits_to_process = []
+    fetched_commits = []
     page = 1
+    found_anchor = False
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
 
     async with httpx.AsyncClient(timeout=15) as client:
-        while len(commits_to_process) < max_commits:
+        while True:
             url = f"https://api.github.com/repos/{owner}/{repo_name}/commits?sha={default_branch}&per_page=30&page={page}"
             response = await client.get(url, headers=headers)
 
             if response.status_code in (403, 429):
-                break
+                return {"status": "rate_limited", "commits": []}
             if response.status_code != 200:
-                break
+                return {"status": "api_error", "commits": []}
             
             data = response.json()
             if not data:
                 break
 
             if not last_processed_sha and page == 1:
-                commits_to_process.append({"sha": data[0]["sha"], "message": data[0].get("commit", {}).get("message", "")})
-                break
+                return {
+                    "status": "success",
+                    "commits": [{"sha": data[0]["sha"], "message": data[0].get("commit", {}).get("message", "")}]
+                }
 
-            found_anchor = False
             for c in data:
                 sha = c["sha"]
                 if sha == last_processed_sha:
                     found_anchor = True
                     break
-                commits_to_process.append({"sha": sha, "message": c.get("commit", {}).get("message", "")})
+                fetched_commits.append({"sha": sha, "message": c.get("commit", {}).get("message", "")})
 
-            if found_anchor or page > 10:
+            if found_anchor or page > 100:
                 break
             page += 1
 
-    commits_to_process.reverse()
-    return commits_to_process[:max_commits]
+    if last_processed_sha and not found_anchor:
+        return {"status": "anchor_not_found", "commits": []}
+
+    fetched_commits.reverse()
+    return {"status": "success", "commits": fetched_commits[:max_commits]}
 
 async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, deadline: float) -> dict:
     result = {"repo_id": repo_id, "changed": False, "commits_discovered": 0, "commits_queued": 0, "error": None, "partial": False}
@@ -177,11 +182,29 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
                 return result
 
             result["changed"] = True
-            missing_commits = await fetch_missing_commits(owner, repo_name, branch, last_processed_sha, settings.MAX_COMMITS_PER_POLL)
+            fetch_result = await fetch_missing_commits(owner, repo_name, branch, last_processed_sha, settings.MAX_COMMITS_PER_POLL)
+            
+            if fetch_result["status"] in ("rate_limited", "api_error"):
+                repo.last_poll_error = f"GitHub API: {fetch_result['status']}"
+                await db.commit()
+                result["error"] = fetch_result["status"]
+                return result
+                
+            if fetch_result["status"] == "anchor_not_found":
+                repo.last_poll_error = "ANCHOR_NOT_FOUND: history rewrite detected"
+                repo.monitoring_status = "ERROR"
+                await db.commit()
+                result["error"] = "anchor_not_found"
+                return result
+
+            missing_commits = fetch_result["commits"]
             result["commits_discovered"] = len(missing_commits)
 
             for commit_data in missing_commits:
-                if time.time() > deadline:
+                # Runtime budget reservation: Do we have enough time for a scan?
+                remaining = deadline - time.time()
+                SAFETY_MARGIN_SECONDS = 15
+                if remaining <= (settings.SCAN_TIMEOUT_SECONDS + SAFETY_MARGIN_SECONDS):
                     result["partial"] = True
                     break
 
