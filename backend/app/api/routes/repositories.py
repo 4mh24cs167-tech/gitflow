@@ -123,7 +123,7 @@ async def create_repository(repo: RepositoryCreate, current_user: User = Depends
                 is_public=not data.get("private"),
                 github_created_at=parse_date(data.get("created_at")) if data.get("created_at") else None,
                 github_updated_at=parse_date(data.get("updated_at")) if data.get("updated_at") else None,
-                monitoring_enabled=True, monitoring_status="POLLING_ACTIVE"
+                monitoring_status="POLLING_ACTIVE"
             )
             db.add(db_repo)
             await db.commit()

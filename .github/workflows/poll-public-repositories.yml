@@ -1,0 +1,33 @@
+name: Poll Public Repositories
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger polling endpoint
+        env:
+          GITFLOW_CRON_SECRET: ${{ secrets.GITFLOW_CRON_SECRET }}
+          RENDER_API_URL: ${{ secrets.RENDER_API_URL }}
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${GITFLOW_CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            "${RENDER_API_URL}/admin/polling/run")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "Status: ${HTTP_CODE}"
+          echo "Response: ${BODY}"
+          
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::Polling endpoint returned HTTP ${HTTP_CODE}"
+            exit 1
+          fi

@@ -15,22 +15,7 @@ services:
         sync: false
       - key: GITHUB_TOKEN_ENCRYPTION_KEY
         sync: false
-
-  - type: worker
-    name: gitflow-polling-worker
-    env: python
-    buildCommand: "pip install -r backend/requirements.txt"
-    startCommand: "cd backend && python -m app.workers.polling"
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: gitflow-db
-          property: connectionString
-      - key: MAX_CONCURRENT_SCANS
-        value: 2
-      - key: POLL_INTERVAL_SECONDS
-        value: 300
-      - key: GITHUB_TOKEN_ENCRYPTION_KEY
+      - key: GITFLOW_CRON_SECRET
         sync: false
 
 databases:

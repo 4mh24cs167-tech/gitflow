@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
     GITHUB_OAUTH_STATE_TTL_SECONDS: int = 600
     SCAN_TIMEOUT_SECONDS: int = 120
+    CRON_SECRET: str = os.getenv("GITFLOW_CRON_SECRET", "")
+    MAX_COMMITS_PER_POLL: int = int(os.getenv("MAX_COMMITS_PER_POLL", "10"))
+    MAX_CONCURRENT_SCANS: int = int(os.getenv("MAX_CONCURRENT_SCANS", "2"))
     GITHUB_TOKEN_ENCRYPTION_KEY: str = os.getenv("GITHUB_TOKEN_ENCRYPTION_KEY", "uE2N2wF5bCq-H6sVlqQhM5mZl3fA7xP4V2bJ0rA1h10=")
 
     class Config:

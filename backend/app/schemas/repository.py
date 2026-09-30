@@ -18,8 +18,12 @@ class RepositoryResponse(RepositoryBase):
     is_public: Optional[bool] = True
     github_created_at: Optional[datetime] = None
     github_updated_at: Optional[datetime] = None
-    monitoring_enabled: Optional[bool] = False
     monitoring_status: Optional[str] = "NOT_CONFIGURED"
+    last_polled_at: Optional[datetime] = None
+    last_successful_poll_at: Optional[datetime] = None
+    last_processed_sha: Optional[str] = None
+    last_seen_sha: Optional[str] = None
+    last_poll_error: Optional[str] = None
 
     class Config:
         from_attributes = True
