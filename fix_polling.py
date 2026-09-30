@@ -1,4 +1,7 @@
-import asyncio
+import re
+
+with open("backend/app/workers/polling.py", "w", encoding="utf-8") as f:
+    f.write("""import asyncio
 import httpx
 from datetime import datetime, timezone
 from sqlalchemy import select, and_
@@ -16,21 +19,10 @@ async def fetch_commits_between(client, owner, repo_name, default_branch, last_p
     while True:
         url = f"https://api.github.com/repos/{owner}/{repo_name}/commits?sha={default_branch}&per_page=30&page={page}"
         response = await client.get(url, headers=headers)
-        if response.status_code in (403, 429):
-            reset_time = response.headers.get("x-ratelimit-reset")
-            retry_after = response.headers.get("retry-after")
-            
-            wait_seconds = 60
-            import time
-            if retry_after:
-                wait_seconds = int(retry_after)
-            elif reset_time:
-                wait_seconds = max(60, int(reset_time) - int(time.time()))
-            
-            print(f"Rate limited by GitHub. Waiting {wait_seconds} seconds.")
-            await asyncio.sleep(wait_seconds)
+        if response.status_code == 403 or response.status_code == 429:
+            # Rate limited, pause
+            await asyncio.sleep(60)
             continue
-
         if response.status_code != 200:
             break
             
@@ -38,15 +30,6 @@ async def fetch_commits_between(client, owner, repo_name, default_branch, last_p
         if not commits:
             break
             
-        # If there's no last processed SHA (e.g. brand new repository that failed initial scan),
-        # just take the very first commit (the latest) and stop, to prevent scanning entire history.
-        if not last_processed_sha and page == 1:
-            commits_to_process.append({
-                "sha": commits[0]["sha"],
-                "message": commits[0].get("commit", {}).get("message", "")
-            })
-            break
-
         found = False
         for c in commits:
             sha = c["sha"]
@@ -63,9 +46,6 @@ async def fetch_commits_between(client, owner, repo_name, default_branch, last_p
         page += 1
         
     return reversed(commits_to_process)
-
-
-etag_cache = {}
 
 async def repository_polling_loop():
     while True:
@@ -96,24 +76,7 @@ async def repository_polling_loop():
                                     if last_commit:
                                         last_processed_sha = last_commit.hash
                                 
-                                # Check latest commit for Etag
-                                headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-                                if repo.id in etag_cache:
-                                    headers["If-None-Match"] = etag_cache[repo.id]
-                                    
-                                url = f"https://api.github.com/repos/{owner}/{repo_name}/commits?sha={repo.default_branch or 'HEAD'}&per_page=1"
-                                response = await client.get(url, headers=headers)
-                                
-                                if response.status_code == 304:
-                                    # No changes
-                                    continue
-                                    
-                                if response.status_code == 200:
-                                    if "etag" in response.headers:
-                                        etag_cache[repo.id] = response.headers["etag"]
-                                        
                                 # Fetch commits from GitHub
-
                                 commits = await fetch_commits_between(
                                     client, owner, repo_name, repo.default_branch or "HEAD", last_processed_sha
                                 )
@@ -154,3 +117,4 @@ async def repository_polling_loop():
 
 if __name__ == "__main__":
     asyncio.run(repository_polling_loop())
+""")

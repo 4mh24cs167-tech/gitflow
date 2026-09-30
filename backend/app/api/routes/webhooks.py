@@ -38,8 +38,12 @@ async def github_webhook(
     
     event_type = request.headers.get("x-github-event")
     if event_type == "push":
-        repo_url = payload.get("repository", {}).get("clone_url")
+        repo_url = payload.get("repository", {}).get("clone_url") or payload.get("repository", {}).get("html_url")
         commit_sha = payload.get("after")
+        try:
+            canonical_url, _, _ = get_canonical_github_url(repo_url)
+        except Exception:
+            canonical_url = repo_url
         
         if repo_url and commit_sha:
             # Find repository by url
