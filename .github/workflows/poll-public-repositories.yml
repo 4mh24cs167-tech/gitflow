@@ -5,6 +5,10 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: gitflow-public-polling
+  cancel-in-progress: false
+
 jobs:
   poll:
     runs-on: ubuntu-latest
