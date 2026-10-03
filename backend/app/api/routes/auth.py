@@ -26,9 +26,15 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.refresh(db_user)
     return db_user
 
+from sqlalchemy import select, or_
+
 @router.post("/login")
 async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.username == form_data.username))
+    result = await db.execute(
+        select(User).where(
+            or_(User.username == form_data.username, User.email == form_data.username)
+        )
+    )
     user = result.scalars().first()
     
     if not user or not verify_password(form_data.password, user.hashed_password):
