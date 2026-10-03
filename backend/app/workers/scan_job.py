@@ -48,28 +48,36 @@ async def run_scan(scan_id: int):
             repo = (await db.execute(select(Repository).where(Repository.id == commit.repository_id))).scalars().one()
             user = (await db.execute(select(User).where(User.id == repo.owner_id))).scalars().one()
             oauth_token = decrypt_token(user.github_access_token or "")
-            if not oauth_token:
-                raise RuntimeError("GitHub authentication is required to scan this repository")
+            if not oauth_token and not getattr(repo, 'is_public', False):
+                raise RuntimeError("GitHub authentication is required to scan this private repository")
             temp_dir = tempfile.mkdtemp(prefix="risk_passport_scan_")
-            # Git requests credentials from this short-lived helper. The token exists
-            # only in this child process environment; it is never in a URL, command
-            # line, or repository configuration file.
-            helper = tempfile.NamedTemporaryFile(mode="w", suffix=".cmd", prefix="risk_passport_askpass_", delete=False, encoding="utf-8")
-            helper.write("@echo off\r\n")
-            helper.write("echo %~1 | findstr /i /c:\"username\" >nul\r\n")
-            helper.write("if not errorlevel 1 (echo x-access-token) else (echo %GITHUB_OAUTH_TOKEN%)\r\n")
-            helper.close()
-            askpass_path = helper.name
-            # Preserve host networking/proxy configuration while overriding only
-            # Git controls needed for non-interactive, in-memory authentication.
+            
             env = os.environ.copy()
-            env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1", "GIT_ASKPASS": askpass_path, "GIT_ASKPASS_REQUIRE": "force", "GITHUB_OAUTH_TOKEN": oauth_token})
+            env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
+            
+            if oauth_token:
+                # Git requests credentials from this short-lived helper. The token exists
+                # only in this child process environment; it is never in a URL, command
+                # line, or repository configuration file.
+                helper = tempfile.NamedTemporaryFile(mode="w", suffix=".cmd", prefix="risk_passport_askpass_", delete=False, encoding="utf-8")
+                helper.write("@echo off\r\n")
+                helper.write("echo %~1 | findstr /i /c:\"username\" >nul\r\n")
+                helper.write("if not errorlevel 1 (echo x-access-token) else (echo %GITHUB_OAUTH_TOKEN%)\r\n")
+                helper.close()
+                askpass_path = helper.name
+                
+                # Preserve host networking/proxy configuration while overriding only
+                # Git controls needed for non-interactive, in-memory authentication.
+                env.update({"GIT_ASKPASS": askpass_path, "GIT_ASKPASS_REQUIRE": "force", "GITHUB_OAUTH_TOKEN": oauth_token})
+                
             # Do not use --depth: an older webhook commit must remain fetchable after
             # newer commits reach the branch. --no-checkout prevents hooks/scripts.
             subprocess.run(["git", "clone", "--no-checkout", repo.url, temp_dir], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
-            del oauth_token
-            env.pop("GITHUB_OAUTH_TOKEN", None)
-            env.pop("GIT_ASKPASS", None)
+            
+            if oauth_token:
+                del oauth_token
+                env.pop("GITHUB_OAUTH_TOKEN", None)
+                env.pop("GIT_ASKPASS", None)
             subprocess.run(["git", "-C", temp_dir, "checkout", "--detach", commit.hash], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
             checked_out = subprocess.run(["git", "-C", temp_dir, "rev-parse", "HEAD"], check=True, capture_output=True, text=True, timeout=10, env=env).stdout.strip().lower()
             if checked_out != commit.hash: raise RuntimeError("checked out revision did not match requested SHA")
