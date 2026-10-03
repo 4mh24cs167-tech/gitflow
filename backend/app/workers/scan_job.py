@@ -16,8 +16,11 @@ from app.scoring.engine import calculate_risk_score
 def safe_error(exc: Exception) -> str:
     """Keep operational errors useful without returning paths, URLs, or credentials."""
     if isinstance(exc, subprocess.TimeoutExpired): return "Git operation timed out"
-    if isinstance(exc, subprocess.CalledProcessError): return "Git could not retrieve the requested commit"
-    return "Scan failed while analyzing the repository"
+    if isinstance(exc, subprocess.CalledProcessError): 
+        err = exc.stderr if hasattr(exc, 'stderr') and exc.stderr else str(exc)
+        return f"Git could not retrieve the requested commit: {err}"
+    import traceback
+    return f"Scan failed while analyzing the repository: {str(exc)} \n {''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}"
 
 def calculate_score_delta(current_score: int, previous_score: int | None) -> int | None:
     """Return a persisted history delta; the first completed scan has no baseline."""
