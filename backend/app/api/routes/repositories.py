@@ -173,7 +173,7 @@ async def trigger_manual_scan(repository_id: int, request: ScanRequest, backgrou
 async def get_repository_scans(repository_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     await owned_repository(repository_id, current_user, db)
     scans = (await db.execute(select(Scan).join(Scan.commit).options(selectinload(Scan.commit), selectinload(Scan.risk_score), selectinload(Scan.findings)).where(Commit.repository_id == repository_id).order_by(Scan.created_at.desc()))).scalars().all()
-    return [{"id": s.id, "commit_sha": s.commit.hash, "status": s.status, "score": s.risk_score.score if s.risk_score else None, "score_details": s.risk_score.details if s.risk_score else None, "created_at": s.created_at, "findings_count": len(s.findings)} for s in scans]
+    return [{"id": s.id, "commit_sha": s.commit.hash, "status": s.status, "score": s.risk_score.score if s.risk_score else None, "score_details": s.risk_score.details if s.risk_score else None, "created_at": s.created_at, "findings_count": len(s.findings), "error_message": s.error_message} for s in scans]
 
 @router.get("/{repository_id}/risk-history")
 async def get_risk_history(repository_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
