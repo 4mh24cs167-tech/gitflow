@@ -276,8 +276,8 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
                 async with semaphore:
                     await run_scan(new_scan.id)
 
-                finished_scan = (await db.execute(select(Scan).where(Scan.id == new_scan.id))).scalars().first()
-                if finished_scan and finished_scan.status == "COMPLETED":
+                await db.refresh(new_scan)
+                if new_scan.status == "COMPLETED":
                     # Persist cursor immediately
                     repo.last_processed_sha = sha
                     repo.last_poll_error = None

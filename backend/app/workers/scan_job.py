@@ -163,7 +163,7 @@ async def run_scan(scan_id: int):
             db.add(RiskScore(scan_id=scan.id, score=score_breakdown["final_score"], score_delta=calculate_score_delta(score_breakdown["final_score"], previous_score), details=json.dumps(score_breakdown)))
             scan.status = "COMPLETED"; scan.completed_at = datetime.utcnow(); scan.error_message = None
         except Exception as exc:
-            scan.status = "FAILED"; scan.completed_at = datetime.utcnow(); scan.error_message = safe_error(exc)
+            scan.status = "FAILED"; scan.completed_at = datetime.utcnow(); scan.error_message = safe_error(exc); await db.commit()
         finally:
             if temp_dir: shutil.rmtree(temp_dir, ignore_errors=True)
             if askpass_path:
