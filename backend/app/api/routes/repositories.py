@@ -54,24 +54,17 @@ async def queue_scan(repository_id: int, commit_sha: str, current_user: User, db
         path = path.strip("/")
         
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-                # Try anonymous fetch
-                response = await client.get(
-                    f"https://api.github.com/repos/{path}/commits/HEAD",
-                    headers=headers
-                )
-                if response.status_code == 403 or response.status_code == 404:
-                    # Fallback to token if rate limited and user has token
-                    plain_token = decrypt_token(current_user.github_access_token) if current_user.github_access_token else None
-                    if plain_token:
-                        headers["Authorization"] = f"Bearer {plain_token}"
-                        response = await client.get(f"https://api.github.com/repos/{path}/commits/HEAD", headers=headers)
-                
-                response.raise_for_status()
-                sha = response.json().get("sha", "").lower()
-        except Exception:
-            raise HTTPException(status_code=503, detail="Failed to resolve HEAD commit from GitHub")
+            import subprocess
+            cmd = ["git", "ls-remote", repo.url, "HEAD"]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
+            output = result.stdout.strip()
+            if output:
+                sha = output.split()[0].lower()
+            else:
+                raise ValueError("No output from git ls-remote")
+        except Exception as e:
+            print(f"Failed to resolve HEAD via git ls-remote: {e}")
+            raise HTTPException(status_code=503, detail="Failed to resolve HEAD commit using native Git")
 
     if not SHA_RE.fullmatch(sha): 
         raise HTTPException(status_code=422, detail="commit_sha must be a full 40-character Git commit SHA")
