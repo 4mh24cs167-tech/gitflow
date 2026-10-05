@@ -95,48 +95,66 @@ def resolve_remote_head(url: str) -> str | None:
 async def fetch_missing_commits(
     owner: str, repo_name: str, default_branch: str, last_processed_sha: str | None, max_commits: int
 ) -> dict:
-    import httpx
-    fetched_commits = []
-    page = 1
-    found_anchor = False
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    import tempfile
+    import shutil
+    import asyncio
+    import os
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        while True:
-            url = f"https://api.github.com/repos/{owner}/{repo_name}/commits?sha={default_branch}&per_page=30&page={page}"
-            response = await client.get(url, headers=headers)
+    url = f"https://github.com/{owner}/{repo_name}.git"
+    temp_dir = tempfile.mkdtemp(prefix="gitflow_bare_")
+    env = os.environ.copy()
+    env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
 
-            if response.status_code in (403, 429):
-                return {"status": "rate_limited", "commits": []}
-            if response.status_code != 200:
-                return {"status": "api_error", "commits": []}
-            
-            data = response.json()
-            if not data:
-                break
+    try:
+        # Shallow bare clone using partial clone feature to avoid downloading file blobs
+        clone_cmd = ["git", "clone", "--bare", "--filter=blob:none", url, temp_dir]
+        proc = await asyncio.create_subprocess_exec(
+            *clone_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        await proc.communicate()
+        if proc.returncode != 0:
+            return {"status": "api_error", "commits": []}
 
-            if not last_processed_sha and page == 1:
-                return {
-                    "status": "success",
-                    "commits": [{"sha": data[0]["sha"], "message": data[0].get("commit", {}).get("message", "")}]
-                }
+        if not last_processed_sha:
+            # First run: get just the latest commit
+            log_cmd = ["git", "-C", temp_dir, "log", default_branch, "-n", "1", "--format=%H|%s"]
+        else:
+            # Check if anchor exists
+            check_cmd = ["git", "-C", temp_dir, "cat-file", "-e", f"{last_processed_sha}^{{commit}}"]
+            proc = await asyncio.create_subprocess_exec(
+                *check_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            await proc.communicate()
+            if proc.returncode != 0:
+                return {"status": "anchor_not_found", "commits": []}
+                
+            # Get commits between anchor and HEAD
+            log_cmd = ["git", "-C", temp_dir, "log", f"{last_processed_sha}..{default_branch}", "--format=%H|%s"]
 
-            for c in data:
-                sha = c["sha"]
-                if sha == last_processed_sha:
-                    found_anchor = True
-                    break
-                fetched_commits.append({"sha": sha, "message": c.get("commit", {}).get("message", "")})
+        proc = await asyncio.create_subprocess_exec(
+            *log_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0:
+            return {"status": "api_error", "commits": []}
 
-            if found_anchor or page > 100:
-                break
-            page += 1
+        commits = []
+        lines = stdout.decode('utf-8').strip().split('\n')
+        for line in lines:
+            if not line: continue
+            parts = line.split('|', 1)
+            if len(parts) == 2:
+                commits.append({"sha": parts[0], "message": parts[1]})
 
-    if last_processed_sha and not found_anchor:
-        return {"status": "anchor_not_found", "commits": []}
+        if last_processed_sha:
+            # log outputs newest first, so we reverse it to get chronological order (oldest to newest)
+            commits.reverse()
+            commits = commits[:max_commits]
 
-    fetched_commits.reverse()
-    return {"status": "success", "commits": fetched_commits[:max_commits]}
+        return {"status": "success", "commits": commits}
+        
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, deadline: float) -> dict:
     result = {"repo_id": repo_id, "changed": False, "commits_discovered": 0, "commits_queued": 0, "error": None, "partial": False}
