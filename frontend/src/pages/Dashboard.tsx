@@ -62,7 +62,7 @@ export default function Dashboard() {
 
   const stats = [
     { title: 'Total Repositories', value: repos.length, change: '', trend: 'neutral' },
-    { title: 'Current Risk Score', value: history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'NO COMPLETED SCAN', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest Δ ${history[history.length - 1].scoreDelta! >= 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
+    { title: 'Current Security Score', value: history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'NO COMPLETED SCAN', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest Δ ${history[history.length - 1].scoreDelta! >= 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
   ];
 
   
@@ -194,7 +194,7 @@ export default function Dashboard() {
                     )}
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Current Risk Score</p>
+                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Current Security Score</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-white">
                       {activeRepoId === repo.id.toString() && history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'N/A') : '--'}
                     </p>

@@ -58,14 +58,14 @@ export default function RiskPassport() {
         setLoading(false);
       } catch (err: any) {
         console.error(err);
-        setError('Failed to load risk passport data.');
+        setError('Failed to load Security Passport data.');
         setLoading(false);
       }
     };
     fetchData();
   }, []);
 
-  if (loading) return <div className="p-8 text-center text-slate-500">Loading Risk Passport...</div>;
+  if (loading) return <div className="p-8 text-center text-slate-500">Loading Security Passport...</div>;
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
 
   if (needsSelection) {
@@ -89,8 +89,8 @@ export default function RiskPassport() {
     return (
       <div className="max-w-6xl mx-auto text-center py-12">
         <Shield className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-700 mb-4" />
-        <h1 className="text-2xl font-bold mb-2">Software Risk Passport</h1>
-        <p className="text-slate-500 dark:text-slate-400">Connect a repository and complete a scan to generate its risk passport.</p>
+        <h1 className="text-2xl font-bold mb-2">Software Security Passport</h1>
+        <p className="text-slate-500 dark:text-slate-400">Connect a repository and complete a scan to generate its Security Passport.</p>
       </div>
     );
   }
@@ -126,7 +126,7 @@ export default function RiskPassport() {
         <div>
           <h1 className="text-3xl font-bold text-slate-800 dark:text-white flex items-center">
             <Shield className="w-8 h-8 mr-3 text-brand-500" />
-            Software Risk Passport
+            Software Security Passport
           </h1>
           <p className="text-slate-500 mt-1 flex items-center">
             <GitCommit className="w-4 h-4 mr-1" />
@@ -144,7 +144,7 @@ export default function RiskPassport() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-6 shadow-soft">
-          <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-4">Current Risk Score</h3>
+          <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-4">Current Security Score</h3>
           <div className="flex items-end space-x-4">
             <span className={`text-6xl font-bold ${risk_score === 0 ? 'text-red-600 dark:text-red-500' : 'text-slate-800 dark:text-white'}`}>
               {status === 'FAILED' ? 'FAILED' : risk_score !== null ? risk_score : 'UNAVAILABLE'}
@@ -198,7 +198,7 @@ export default function RiskPassport() {
       </div>
 
       <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-6 shadow-soft">
-        <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-6">Risk History</h3>
+        <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-6">Security History</h3>
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

@@ -86,10 +86,10 @@ export default function CommitAudit() {
           </div>
         </div>
         
-        {/* Risk Score Card */}
+        {/* Security Score Card */}
         <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-6 shadow-soft flex items-center space-x-8 min-w-[250px]">
           <div>
-            <div className="text-sm text-slate-500 uppercase tracking-wider mb-1">Risk Score</div>
+            <div className="text-sm text-slate-500 uppercase tracking-wider mb-1">Security Score</div>
             <div className="flex items-center">
               <span className="text-4xl font-bold text-slate-800 dark:text-white">{currentScore !== null ? currentScore : "N/A"}</span>
               <div className={`ml-3 flex items-center text-sm font-medium ${delta < 0 ? 'text-red-500' : delta > 0 ? 'text-emerald-500' : 'text-slate-500'}`}>
@@ -117,11 +117,14 @@ export default function CommitAudit() {
             </h2>
             <div className="text-slate-600 dark:text-slate-400 leading-relaxed text-sm space-y-4">
               <p>
-                This commit introduced <strong>{data.changes?.length || 0} file change(s)</strong>.
+                <strong>Developer's Log:</strong> {data.message || 'No description provided.'}
+              </p>
+              <p>
+                <strong>Analysis:</strong> This commit introduced <strong>{data.changes?.length || 0} file change(s)</strong> across the repository.
                 {data.findings && data.findings.length > 0 ? (
-                  <> During static analysis, <strong>{data.findings.length} security finding(s)</strong> were identified.</>
+                  <> During static analysis, the engine identified <strong>{data.findings.length} security finding(s)</strong> that require attention.</>
                 ) : (
-                  <> No security risks were identified in the source code.</>
+                  <> No security risks or sensitive data exposure were identified in the source code modifications.</>
                 )}
               </p>
               {data.findings && data.findings.length > 0 && (
@@ -134,7 +137,7 @@ export default function CommitAudit() {
                           [{f.severity}] {f.title}:
                         </span>{' '}
                         {f.description}
-                        {f.file_path && <span className="block text-xs font-mono mt-1 text-slate-500">Path: {f.file_path}</span>}
+                        {f.file_path && <span className="block text-xs font-mono mt-1 text-slate-500">Path: {f.file_path}{f.line_number ? ` (Line ${f.line_number})` : ''}</span>}
                       </li>
                     ))}
                   </ul>
@@ -218,23 +221,24 @@ export default function CommitAudit() {
               <Shield className="w-5 h-5 mr-2 text-slate-400" />
               Impact
             </h2>
-            {data.impact ? (
-              <div className="space-y-4 text-sm">
-                <div>
-                  <h4 className="font-semibold text-slate-700 dark:text-slate-300">Directly Changed</h4>
-                  <p className="text-slate-600 dark:text-slate-400 mt-1">{data.impact.directly_changed || 'None'}</p>
-                </div>
-                <div>
-                  <h4 className="font-semibold text-slate-700 dark:text-slate-300">Potentially Affected</h4>
-                  <p className="text-slate-600 dark:text-slate-400 mt-1">{data.impact.potentially_affected || 'None'}</p>
-                </div>
-                <div>
-                  <h4 className="font-semibold text-slate-700 dark:text-slate-300">Reason</h4>
-                  <p className="text-slate-600 dark:text-slate-400 mt-1">{data.impact.reason || 'Not specified'}</p>
-                </div>
+            {data.impact && Object.keys(data.impact).length > 0 ? (
+              <div className="space-y-4 text-sm max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                {Object.entries(data.impact).map(([affected, causes]: [string, any], i) => (
+                  <div key={i} className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded border border-slate-100 dark:border-slate-700">
+                     <span className="font-mono text-xs text-brand-600 dark:text-brand-400">{affected}</span> is affected by changes in: 
+                     <ul className="list-disc pl-5 mt-2 text-slate-500 space-y-1">
+                       {causes.map((c: any, j: number) => (
+                         <li key={j}>
+                           <span className="font-mono text-xs">{c.changed_file}</span>
+                           <span className={`ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded ${c.review_priority === 'HIGH' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : c.review_priority === 'MEDIUM' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>{c.review_priority} Priority</span>
+                         </li>
+                       ))}
+                     </ul>
+                  </div>
+                ))}
               </div>
             ) : (
-              <p className="text-slate-500 text-sm">Impact analysis not available.</p>
+              <p className="text-slate-500 text-sm">No cross-file dependencies were detected as impacted by this change.</p>
             )}
           </div>
 

@@ -248,7 +248,7 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
         "author": scan.commit.author_name or "Unknown",
         "timestamp": scan.commit.committed_at.isoformat() if scan.commit.committed_at else None,
         "status": scan.status,
-        "findings": [{"title": f.type, "description": f.description, "severity": f.severity} for f in scan.findings],
+        "findings": [{"title": f.type, "description": f.description, "severity": f.severity, "file_path": f.file_path, "line_number": f.line_number} for f in scan.findings],
         "changes": changes,
         "impact": impact,
         "risk_score": current_score,

@@ -14,7 +14,7 @@ export default function Layout() {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Repositories', href: '/onboarding', icon: GitBranch },
-    { name: 'Risk Passport', href: '/passport', icon: Shield },
+    { name: 'Security Passport', href: '/passport', icon: Shield },
   ];
 
   useEffect(() => {
