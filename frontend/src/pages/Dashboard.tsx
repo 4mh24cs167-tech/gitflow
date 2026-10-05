@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { GitCommit } from 'lucide-react';
+import { GitCommit, CheckCircle2, Activity } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiClient } from '../config';
 
@@ -150,32 +150,54 @@ export default function Dashboard() {
                     </button>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-4 pt-4 border-t border-border-light dark:border-border-dark">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-4 border-t border-border-light dark:border-border-dark">
                   <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Owner</p>
-                    <p className="font-medium truncate">{repo.github_owner || 'N/A'}</p>
+                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Monitoring Status</p>
+                    <div className="flex items-center space-x-2">
+                      <div className="relative flex h-3 w-3">
+                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${repo.last_poll_error ? 'bg-red-400' : 'bg-emerald-400'}`}></span>
+                        <span className={`relative inline-flex rounded-full h-3 w-3 ${repo.last_poll_error ? 'bg-red-500' : 'bg-emerald-500'}`}></span>
+                      </div>
+                      <p className={`font-medium ${repo.last_poll_error ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {repo.last_poll_error ? 'POLLING FAILED' : (repo.monitoring_status ? repo.monitoring_status.replace('_', ' ') : 'NOT CONFIGURED')}
+                      </p>
+                    </div>
+                    {repo.last_poll_error && (
+                      <p className="text-xs text-red-500 mt-1 truncate" title={repo.last_poll_error}>{repo.last_poll_error}</p>
+                    )}
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Visibility</p>
-                    <p className="font-medium">{repo.is_public ? 'Public' : 'Private'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Default Branch</p>
-                    <p className="font-medium truncate">{repo.default_branch || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Last Updated</p>
-                    <p className="font-medium text-sm truncate">{repo.github_updated_at ? new Date(repo.github_updated_at).toLocaleDateString() : 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Monitoring</p>
-                    <p className="font-medium text-emerald-600 dark:text-emerald-400 flex items-center">
-                      {repo.monitoring_status ? repo.monitoring_status.replace('_', ' ') : 'NOT CONFIGURED'}
+                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Last Polled</p>
+                    <p className="font-medium text-sm">
+                      {repo.last_polled_at ? new Date(repo.last_polled_at).toLocaleString() : 'Never'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Success: {repo.last_successful_poll_at ? new Date(repo.last_successful_poll_at).toLocaleTimeString() : 'Never'}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Current Risk Score</p>
-                    <p className="font-medium">{activeRepoId === repo.id.toString() && history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'Select to view'}</p>
+                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Sync Status</p>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono text-sm bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-slate-700 dark:text-slate-300">
+                        {repo.last_processed_sha ? repo.last_processed_sha.substring(0, 7) : 'None'}
+                      </span>
+                      <span className="text-slate-400">&rarr;</span>
+                      <span className="font-mono text-sm bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-slate-700 dark:text-slate-300">
+                        {repo.last_seen_sha ? repo.last_seen_sha.substring(0, 7) : 'None'}
+                      </span>
+                    </div>
+                    {repo.last_processed_sha && repo.last_seen_sha && repo.last_processed_sha === repo.last_seen_sha && (
+                       <p className="text-xs text-emerald-500 mt-1 flex items-center"><CheckCircle2 className="w-3 h-3 mr-1" /> Fully Synced</p>
+                    )}
+                    {repo.last_processed_sha && repo.last_seen_sha && repo.last_processed_sha !== repo.last_seen_sha && (
+                       <p className="text-xs text-amber-500 mt-1 flex items-center"><Activity className="w-3 h-3 mr-1" /> Processing backlog...</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Current Risk Score</p>
+                    <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                      {activeRepoId === repo.id.toString() && history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'N/A') : '--'}
+                    </p>
                   </div>
                 </div>
               </div>
