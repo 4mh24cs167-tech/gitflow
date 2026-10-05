@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Shield } from 'lucide-react';
+
 import { apiClient } from '../config';
 
 export default function Login() {
@@ -30,10 +30,10 @@ export default function Login() {
       
       <div className="w-full max-w-md p-8 rounded-2xl bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark shadow-xl shadow-black/5 dark:shadow-black/20 z-10">
         <div className="flex flex-col items-center mb-8 text-center">
-          <div className="w-12 h-12 rounded-xl bg-brand-500/10 flex items-center justify-center mb-4">
-            <Shield className="w-6 h-6 text-brand-500" />
+          <div className="w-16 h-16 rounded-xl flex items-center justify-center mb-4">
+            <img src="/gitflow-logo.jpg" alt="GitFlow Logo" className="w-full h-full object-cover rounded-xl shadow-md border border-slate-700/50" />
           </div>
-          <h2 className="text-2xl font-bold tracking-tight mb-1">Welcome back</h2>
+          <h2 className="text-2xl font-bold tracking-tight mb-1">Welcome to GitFlow</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">Sign in to your account to continue</p>
         </div>
 

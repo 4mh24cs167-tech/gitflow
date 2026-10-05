@@ -59,9 +59,9 @@ export default function Layout() {
       {/* Sidebar */}
       <aside className="w-64 border-r border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark flex flex-col">
         <div className="h-16 flex items-center px-6 border-b border-border-light dark:border-border-dark">
-          <Shield className="w-8 h-8 text-brand-500 mr-3" />
-          <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-500 to-brand-400">
-            Risk Passport
+          <img src="/gitflow-logo.jpg" alt="GitFlow Logo" className="w-8 h-8 rounded mr-3 shadow-sm border border-slate-700/50" />
+          <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-500 to-brand-400 tracking-tight">
+            GitFlow
           </span>
         </div>
         
