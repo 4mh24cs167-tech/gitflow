@@ -79,8 +79,16 @@ async def queue_scan(repository_id: int, commit_sha: str, current_user: User, db
     commit = (await db.execute(select(Commit).where(Commit.repository_id == repository_id, Commit.hash == sha))).scalars().first()
     if not commit:
         commit = Commit(repository_id=repository_id, hash=sha, message="Commit scan"); db.add(commit); await db.flush()
-    scan = (await db.execute(select(Scan).where(Scan.commit_id == commit.id))).scalars().first()
-    if scan: return scan, False
+    scan = (await db.execute(select(Scan).where(Scan.commit_id == commit.id).order_by(Scan.created_at.desc()))).scalars().first()
+    if scan and scan.status == "COMPLETED": 
+        return scan, False
+    
+    if scan and scan.status in ["FAILED", "QUEUED", "RUNNING"]:
+        scan.status = "QUEUED"
+        await db.commit()
+        await db.refresh(scan)
+        return scan, True
+        
     scan = Scan(commit_id=commit.id, status="QUEUED"); db.add(scan); await db.commit(); await db.refresh(scan)
     return scan, True
 
