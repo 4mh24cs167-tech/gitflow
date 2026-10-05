@@ -144,11 +144,13 @@ export default function RiskPassport() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark p-6 shadow-soft">
-          <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-4">Current Risk</h3>
+          <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-4">Current Risk Score</h3>
           <div className="flex items-end space-x-4">
-            <span className="text-6xl font-bold text-slate-800 dark:text-white">{status === 'FAILED' ? 'SCAN FAILED' : risk_score !== null ? risk_score : 'UNAVAILABLE'}</span>
+            <span className={`text-6xl font-bold ${risk_score === 0 ? 'text-red-600 dark:text-red-500' : 'text-slate-800 dark:text-white'}`}>
+              {status === 'FAILED' ? 'FAILED' : risk_score !== null ? risk_score : 'UNAVAILABLE'}
+            </span>
             <div className="pb-2">
-              <span className="text-sm text-slate-500 block">out of 100</span>
+              <span className="text-sm text-slate-500 block">out of 100 {risk_score === 0 ? '(Critical)' : ''}</span>
               {score_delta !== null && (
                 <span className={`text-sm font-medium ${score_delta < 0 ? 'text-emerald-500' : score_delta > 0 ? 'text-red-500' : 'text-slate-500'}`}>
                   {score_delta > 0 ? '+' : ''}{score_delta} from previous
@@ -189,7 +191,7 @@ export default function RiskPassport() {
             <div className="text-sm text-slate-600 dark:text-slate-400 truncate">{message || 'No message'}</div>
             <div className="text-xs text-slate-500 flex items-center justify-between mt-4">
               <span>{author || 'Unknown'}</span>
-              <span>{time ? new Date(time).toLocaleString() : 'Unknown time'}</span>
+              <span>{time ? new Date(time).toLocaleString() : 'Prior to tracking'}</span>
             </div>
           </div>
         </div>

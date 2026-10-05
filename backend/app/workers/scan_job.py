@@ -92,10 +92,10 @@ async def run_scan(scan_id: int):
                 commit.author_name = metadata_raw[1]
                 commit.author_email = metadata_raw[2]
                 try:
-                    from dateutil.parser import parse
-                    commit.committed_at = parse(metadata_raw[3]).replace(tzinfo=None)
-                except Exception:
-                    pass
+                    from datetime import datetime
+                    commit.committed_at = datetime.fromisoformat(metadata_raw[3]).replace(tzinfo=None)
+                except Exception as e:
+                    print("Date parsing failed:", e)
                 if len(metadata_raw) > 4 and metadata_raw[4]:
                     commit.parent_shas = metadata_raw[4].replace(" ", ",")
             
@@ -146,6 +146,15 @@ async def run_scan(scan_id: int):
                     message=f"Commit {commit.hash[:7]} modified sensitive authentication or security files."
                 ))
             
+            for finding in raw_findings:
+                if finding.get("severity", "").upper() in ("CRITICAL", "HIGH"):
+                    db.add(Notification(
+                        scan_id=scan.id,
+                        type="SECURITY_ALERT",
+                        title=f"{finding.get('severity')} Risk: {finding.get('category')}",
+                        message=finding.get("message", "Security risk detected in scan.")
+                    ))
+
             # 3. Calculate Risk
             score_breakdown = calculate_risk_score(raw_findings)
             # You could inject impact_data into risk score calculation here if desired.

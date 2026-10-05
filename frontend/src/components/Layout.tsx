@@ -160,10 +160,10 @@ export default function Layout() {
               )}
             </div>
 
-            <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+            <button onClick={() => alert("Settings configuration coming soon.")} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
               <Settings className="w-5 h-5" />
             </button>
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-brand-500 to-purple-500 flex items-center justify-center text-white font-medium text-sm">
+            <div onClick={() => alert("Profile management coming soon.")} className="w-8 h-8 rounded-full bg-gradient-to-tr from-brand-500 to-purple-500 flex items-center justify-center text-white font-medium text-sm cursor-pointer hover:opacity-90 transition-opacity">
               JD
             </div>
           </div>

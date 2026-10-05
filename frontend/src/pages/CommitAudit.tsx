@@ -82,7 +82,7 @@ export default function CommitAudit() {
             <span>•</span>
             <span>{data.repository || 'Repository'}</span>
             <span>•</span>
-            <span>{data.timestamp ? new Date(data.timestamp).toLocaleString() : (data.scanned_at ? new Date(data.scanned_at).toLocaleString() : 'Unknown time')}</span>
+            <span>{data.timestamp ? new Date(data.timestamp).toLocaleString() : (data.scanned_at ? new Date(data.scanned_at).toLocaleString() : 'Prior to tracking')}</span>
           </div>
         </div>
         
@@ -108,6 +108,40 @@ export default function CommitAudit() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
+
+          {/* Executive Summary */}
+          <div className="rounded-xl border border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark shadow-soft p-6">
+            <h2 className="text-xl font-semibold mb-4 flex items-center">
+              <Activity className="w-5 h-5 mr-2 text-brand-500" />
+              Executive Summary
+            </h2>
+            <div className="text-slate-600 dark:text-slate-400 leading-relaxed text-sm space-y-4">
+              <p>
+                This commit introduced <strong>{data.changes?.length || 0} file change(s)</strong>.
+                {data.findings && data.findings.length > 0 ? (
+                  <> During static analysis, <strong>{data.findings.length} security finding(s)</strong> were identified.</>
+                ) : (
+                  <> No security risks were identified in the source code.</>
+                )}
+              </p>
+              {data.findings && data.findings.length > 0 && (
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg mt-4 border border-slate-200 dark:border-slate-700">
+                  <h4 className="font-semibold text-slate-800 dark:text-slate-200 mb-2">Detailed Report</h4>
+                  <ul className="list-disc pl-5 space-y-2">
+                    {data.findings.map((f: any, i: number) => (
+                      <li key={i}>
+                        <span className={`font-semibold ${f.severity === 'Critical' || f.severity === 'High' ? 'text-red-500' : f.severity === 'Medium' ? 'text-amber-500' : 'text-blue-500'}`}>
+                          [{f.severity}] {f.title}:
+                        </span>{' '}
+                        {f.description}
+                        {f.file_path && <span className="block text-xs font-mono mt-1 text-slate-500">Path: {f.file_path}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
           
           {/* Alerts */}
           {data.alerts && data.alerts.length > 0 && (
