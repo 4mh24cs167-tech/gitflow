@@ -234,6 +234,24 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
     current_score = scan.risk_score.score if scan.risk_score else None
     previous_score = current_score - score_delta if score_delta is not None and current_score is not None else None
         
+    previous_commit_obj = None
+    if previous_score is not None:
+        prev_scan = (await db.execute(
+            select(Scan).join(Scan.commit).options(selectinload(Scan.commit))
+            .where(Commit.repository_id == repository_id, Scan.status == "COMPLETED", Scan.id != scan.id, Scan.completed_at < scan.completed_at)
+            .order_by(Scan.completed_at.desc()).limit(1)
+        )).scalars().first()
+        
+        if prev_scan:
+            previous_commit_obj = {
+                "sha": prev_scan.commit.hash,
+                "short_sha": prev_scan.commit.hash[:7],
+                "message": prev_scan.commit.message,
+                "author": prev_scan.commit.author_name or "Unknown",
+                "timestamp": prev_scan.commit.committed_at.isoformat() if prev_scan.commit.committed_at else None,
+                "score": previous_score
+            }
+
     return {
         "id": scan.id,
         "commit_sha": scan.commit.hash,
@@ -241,12 +259,14 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
         "author": scan.commit.author_name or "Unknown",
         "timestamp": scan.commit.committed_at.isoformat() if scan.commit.committed_at else None,
         "status": scan.status,
-        "findings": [{"title": f.type, "description": f.description, "severity": f.severity, "file_path": f.file_path, "line_number": f.line_number} for f in scan.findings],
+        "findings": [{"title": f.type, "description": f.description, "severity": f.severity, "status": f.status or ("BASELINE" if previous_score is None else "NEW"), "file_path": f.file_path, "line_number": f.line_number} for f in scan.findings],
         "changes": changes,
         "impact": impact,
         "risk_score": current_score,
         "previous_score": previous_score,
         "score_delta": score_delta,
+        "score_details": json.loads(scan.risk_score.details) if scan.risk_score and scan.risk_score.details else {},
+        "previous_commit": previous_commit_obj,
         "actions_detected": actions_detected,
         "notifications": [{"id": n.id, "type": n.type, "title": n.title, "message": n.message} for n in notifications]
     }

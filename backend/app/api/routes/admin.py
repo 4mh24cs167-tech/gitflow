@@ -93,68 +93,61 @@ def resolve_remote_head(url: str) -> str | None:
     return None
 
 async def fetch_missing_commits(
-    owner: str, repo_name: str, default_branch: str, last_processed_sha: str | None, max_commits: int
+    owner: str, repo_name: str, default_branch: str, last_processed_sha: str | None, max_commits: int, bare_repo_dir: str
 ) -> dict:
-    import tempfile
-    import shutil
     import asyncio
     import os
 
     url = f"https://github.com/{owner}/{repo_name}.git"
-    temp_dir = tempfile.mkdtemp(prefix="gitflow_bare_")
     env = os.environ.copy()
     env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
 
-    try:
-        # Shallow bare clone using partial clone feature to avoid downloading file blobs
-        clone_cmd = ["git", "clone", "--bare", "--filter=blob:none", url, temp_dir]
+    # Shallow bare clone using partial clone feature to avoid downloading file blobs
+    clone_cmd = ["git", "clone", "--bare", "--filter=blob:none", url, bare_repo_dir]
+    proc = await asyncio.create_subprocess_exec(
+        *clone_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    await proc.communicate()
+    if proc.returncode != 0:
+        return {"status": "api_error", "commits": []}
+
+    if not last_processed_sha:
+        # First run: get just the latest commit
+        log_cmd = ["git", "-C", bare_repo_dir, "log", default_branch, "-n", "1", "--format=%H|%s"]
+    else:
+        # Check if anchor exists
+        check_cmd = ["git", "-C", bare_repo_dir, "cat-file", "-e", f"{last_processed_sha}^{{commit}}"]
         proc = await asyncio.create_subprocess_exec(
-            *clone_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            *check_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         await proc.communicate()
         if proc.returncode != 0:
-            return {"status": "api_error", "commits": []}
+            return {"status": "anchor_not_found", "commits": []}
+            
+        # Get commits between anchor and HEAD
+        log_cmd = ["git", "-C", bare_repo_dir, "log", f"{last_processed_sha}..{default_branch}", "--format=%H|%s"]
 
-        if not last_processed_sha:
-            # First run: get just the latest commit
-            log_cmd = ["git", "-C", temp_dir, "log", default_branch, "-n", "1", "--format=%H|%s"]
-        else:
-            # Check if anchor exists
-            check_cmd = ["git", "-C", temp_dir, "cat-file", "-e", f"{last_processed_sha}^{{commit}}"]
-            proc = await asyncio.create_subprocess_exec(
-                *check_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            await proc.communicate()
-            if proc.returncode != 0:
-                return {"status": "anchor_not_found", "commits": []}
-                
-            # Get commits between anchor and HEAD
-            log_cmd = ["git", "-C", temp_dir, "log", f"{last_processed_sha}..{default_branch}", "--format=%H|%s"]
+    proc = await asyncio.create_subprocess_exec(
+        *log_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0:
+        return {"status": "api_error", "commits": []}
 
-        proc = await asyncio.create_subprocess_exec(
-            *log_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await proc.communicate()
-        if proc.returncode != 0:
-            return {"status": "api_error", "commits": []}
+    commits = []
+    lines = stdout.decode('utf-8').strip().split('\n')
+    for line in lines:
+        if not line: continue
+        parts = line.split('|', 1)
+        if len(parts) == 2:
+            commits.append({"sha": parts[0], "message": parts[1]})
 
-        commits = []
-        lines = stdout.decode('utf-8').strip().split('\n')
-        for line in lines:
-            if not line: continue
-            parts = line.split('|', 1)
-            if len(parts) == 2:
-                commits.append({"sha": parts[0], "message": parts[1]})
+    if last_processed_sha:
+        # log outputs newest first, so we reverse it to get chronological order (oldest to newest)
+        commits.reverse()
+        commits = commits[:max_commits]
 
-        if last_processed_sha:
-            # log outputs newest first, so we reverse it to get chronological order (oldest to newest)
-            commits.reverse()
-            commits = commits[:max_commits]
-
-        return {"status": "success", "commits": commits}
-        
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    return {"status": "success", "commits": commits}
 
 async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, deadline: float) -> dict:
     result = {"repo_id": repo_id, "changed": False, "commits_discovered": 0, "commits_queued": 0, "error": None, "partial": False}
@@ -165,6 +158,9 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
             return result
 
         now = datetime.now(timezone.utc)
+        import tempfile
+        import shutil
+        bare_repo_dir = tempfile.mkdtemp(prefix="gitflow_shared_bare_")
         try:
             canonical_url, owner, repo_name = get_canonical_github_url(repo.url)
             branch = repo.default_branch or "main"
@@ -200,7 +196,7 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
                 return result
 
             result["changed"] = True
-            fetch_result = await fetch_missing_commits(owner, repo_name, branch, last_processed_sha, settings.MAX_COMMITS_PER_POLL)
+            fetch_result = await fetch_missing_commits(owner, repo_name, branch, last_processed_sha, settings.MAX_COMMITS_PER_POLL, bare_repo_dir)
             
             if fetch_result["status"] in ("rate_limited", "api_error"):
                 repo.last_poll_error = f"GitHub API: {fetch_result['status']}"
@@ -270,11 +266,13 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
                 
                 if not new_scan.id:
                     continue
+                    
+                await db.commit() # Commit transaction so run_scan's independent DB session can see the scan
 
                 result["commits_queued"] += 1
 
                 async with semaphore:
-                    await run_scan(new_scan.id)
+                    await run_scan(new_scan.id, shared_repo_dir=bare_repo_dir)
 
                 await db.refresh(new_scan)
                 if new_scan.status == "COMPLETED":
@@ -298,6 +296,8 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
             except Exception:
                 pass
             result["error"] = str(e)[:200]
+        finally:
+            shutil.rmtree(bare_repo_dir, ignore_errors=True)
 
     return result
 

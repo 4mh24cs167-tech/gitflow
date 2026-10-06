@@ -38,7 +38,7 @@ async def previous_completed_score(db, repository_id: int, current_scan_id: int)
     score = (await db.execute(select(RiskScore).where(RiskScore.scan_id == previous.id))).scalars().first()
     return score.score if score else None
 
-async def run_scan(scan_id: int):
+async def run_scan(scan_id: int, shared_repo_dir: str = None):
     temp_dir = None
     askpass_path = None
     async with AsyncSessionLocal() as db:
@@ -53,6 +53,7 @@ async def run_scan(scan_id: int):
             oauth_token = decrypt_token(user.github_access_token or "")
             if not oauth_token and not getattr(repo, 'is_public', False):
                 raise RuntimeError("GitHub authentication is required to scan this private repository")
+            
             temp_dir = tempfile.mkdtemp(prefix="risk_passport_scan_")
             
             env = os.environ.copy()
@@ -73,15 +74,23 @@ async def run_scan(scan_id: int):
                 # Git controls needed for non-interactive, in-memory authentication.
                 env.update({"GIT_ASKPASS": askpass_path, "GIT_ASKPASS_REQUIRE": "force", "GITHUB_OAUTH_TOKEN": oauth_token})
                 
-            # Do not use --depth: an older webhook commit must remain fetchable after
-            # newer commits reach the branch. --no-checkout prevents hooks/scripts.
-            subprocess.run(["git", "clone", "--no-checkout", repo.url, temp_dir], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
+            if shared_repo_dir:
+                # Reuse the bare clone from the polling invocation. 
+                # This guarantees zero duplicate object fetches across B/C/D!
+                subprocess.run(["git", "-C", shared_repo_dir, "worktree", "add", "--detach", temp_dir, commit.hash], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
+            else:
+                # Do not use --depth: an older webhook commit must remain fetchable after
+                # newer commits reach the branch. --no-checkout prevents hooks/scripts.
+                subprocess.run(["git", "clone", "--no-checkout", repo.url, temp_dir], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
             
             if oauth_token:
                 del oauth_token
                 env.pop("GITHUB_OAUTH_TOKEN", None)
                 env.pop("GIT_ASKPASS", None)
-            subprocess.run(["git", "-C", temp_dir, "checkout", "--detach", commit.hash], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
+                
+            if not shared_repo_dir:
+                subprocess.run(["git", "-C", temp_dir, "checkout", "--detach", commit.hash], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
+                
             checked_out = subprocess.run(["git", "-C", temp_dir, "rev-parse", "HEAD"], check=True, capture_output=True, text=True, timeout=10, env=env).stdout.strip().lower()
             if checked_out != commit.hash: raise RuntimeError("checked out revision did not match requested SHA")
             
@@ -165,7 +174,11 @@ async def run_scan(scan_id: int):
             previous_by_fingerprint = {f.fingerprint: f for f in previous_findings}
             current = {f["fingerprint"]: f for f in raw_findings}
             for fingerprint, finding in current.items():
-                db.add(Finding(scan_id=scan.id, fingerprint=fingerprint, status="UNCHANGED" if fingerprint in previous_by_fingerprint else "NEW", type=finding["category"], description=finding["message"], file_path=finding["file_path"], severity=finding["severity"]))
+                line_num = None
+                if finding.get("location", "").startswith("Line "):
+                    try: line_num = int(finding["location"].split(" ")[1])
+                    except ValueError: pass
+                db.add(Finding(scan_id=scan.id, fingerprint=fingerprint, status="UNCHANGED" if fingerprint in previous_by_fingerprint else "NEW", type=finding["category"], description=finding["message"], file_path=finding["file_path"], line_number=line_num, severity=finding["severity"]))
             for fingerprint, finding in previous_by_fingerprint.items():
                 if fingerprint not in current:
                     db.add(Finding(scan_id=scan.id, fingerprint=fingerprint, status="RESOLVED", type=finding.type, description=finding.description, file_path=finding.file_path, line_number=finding.line_number, severity=finding.severity))
@@ -174,7 +187,10 @@ async def run_scan(scan_id: int):
         except Exception as exc:
             scan.status = "FAILED"; scan.completed_at = datetime.utcnow(); scan.error_message = safe_error(exc); await db.commit()
         finally:
-            if temp_dir: shutil.rmtree(temp_dir, ignore_errors=True)
+            if temp_dir:
+                if shared_repo_dir:
+                    subprocess.run(["git", "-C", shared_repo_dir, "worktree", "remove", "--force", temp_dir], check=False, capture_output=True)
+                shutil.rmtree(temp_dir, ignore_errors=True)
             if askpass_path:
                 try: os.remove(askpass_path)
                 except OSError: pass

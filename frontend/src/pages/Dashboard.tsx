@@ -8,51 +8,33 @@ export default function Dashboard() {
   const [activeRepoId, setActiveRepoId] = useState<string | null>(localStorage.getItem('gitflow_active_repo') || null);
   const [history, setHistory] = useState<{ commit: string; score: number | null; date: string; scoreDelta: number | null; findingsCount?: number }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
   
   const handleRepoChange = (e: any) => {
-    localStorage.setItem('gitflow_active_repo', e.target.value);
-    window.location.reload();
+    const newId = e.target.value;
+    setActiveRepoId(newId);
+    localStorage.setItem('gitflow_active_repo', newId);
   };
 
   useEffect(() => {
     const fetchRepos = async () => {
       try {
-                const res = await apiClient.get(`/repositories/`);
-        setRepos(res.data);
+        const reposRes = await apiClient.get(`/repositories/`);
+        setRepos(reposRes.data);
         
-        if (res.data.length === 0) {
+        if (reposRes.data.length === 0) {
             setLoading(false);
             return;
         }
         
         let targetId = activeRepoId;
-        if (!targetId || !res.data.find((r: any) => r.id.toString() === targetId)) {
-            if (res.data.length === 1) {
-                targetId = res.data[0].id.toString();
-                setActiveRepoId(targetId);
-                localStorage.setItem('gitflow_active_repo', targetId as string);
-            } else {
-                                setLoading(false);
-                return;
-            }
-        }
-        
-        if (targetId) {
-           const historyRes = await apiClient.get(`/repositories/${targetId}/risk-history`);
-           const chartData = historyRes.data.map((h: any) => ({
-             scanId: h.id,
-             findingsCount: h.findings_count,
-             repoId: targetId,
-             commit: h.short_sha,
-             score: h.risk_score,
-             date: new Date(h.scanned_at).toLocaleDateString(),
-             scoreDelta: h.score_delta,
-             alerts: h.alerts
-           }));
-           setHistory(chartData);
+        if (!targetId || !reposRes.data.find((r: any) => r.id.toString() === targetId)) {
+            targetId = reposRes.data[0].id.toString();
+            setActiveRepoId(targetId);
+            localStorage.setItem('gitflow_active_repo', targetId as string);
         }
       } catch (err) {
-        console.error("Failed to fetch data", err);
+        console.error("Failed to fetch repos", err);
       } finally {
         setLoading(false);
       }
@@ -60,9 +42,36 @@ export default function Dashboard() {
     fetchRepos();
   }, []);
 
+  useEffect(() => {
+    if (!activeRepoId) return;
+    const fetchHistory = async () => {
+      setHistoryLoading(true);
+      try {
+           const historyRes = await apiClient.get(`/repositories/${activeRepoId}/risk-history`);
+           const latestHistory = historyRes.data.slice(-50);
+           const chartData = latestHistory.map((h: any) => ({
+             scanId: h.id,
+             findingsCount: h.findings_count,
+             repoId: activeRepoId,
+             commit: h.short_sha,
+             score: h.risk_score,
+             date: new Date(h.scanned_at).toLocaleDateString(),
+             scoreDelta: h.score_delta,
+             alerts: h.alerts
+           }));
+           setHistory(chartData);
+      } catch (err) {
+        console.error("Failed to fetch history", err);
+      } finally {
+        setHistoryLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [activeRepoId]);
+
   const stats = [
     { title: 'Total Repositories', value: repos.length, change: '', trend: 'neutral' },
-    { title: 'Current Security Score', value: history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'NO COMPLETED SCAN', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest Δ ${history[history.length - 1].scoreDelta! >= 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
+    { title: 'Current Security Score', value: history.length > 0 ? (history[history.length - 1].score !== null ? history[history.length - 1].score : 'Unavailable') : 'NO COMPLETED SCAN', change: history.length > 0 ? (history[history.length - 1].scoreDelta === null ? 'Baseline scan' : `Latest: ${history[history.length - 1].scoreDelta! > 0 ? '+' : ''}${history[history.length - 1].scoreDelta}`) : 'Connect a repo', trend: 'neutral' },
   ];
 
   
@@ -91,7 +100,11 @@ export default function Dashboard() {
       <div className="rounded-xl border border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark shadow-soft dark:shadow-soft-dark overflow-hidden p-6">
         <h2 className="text-lg font-semibold mb-6">Repository Risk History</h2>
         <div className="h-72 w-full flex items-center justify-center text-slate-500">
-          {loading ? "Loading history..." : 
+          {historyLoading ? (
+            <div className="animate-pulse w-full h-full flex flex-col justify-end space-y-2">
+               <div className="h-full w-full bg-slate-200 dark:bg-slate-800 rounded opacity-50"></div>
+            </div>
+          ) : 
            history.length === 0 ? "No risk history yet. Push a commit or run your first scan to start tracking risk." :
            (
             <ResponsiveContainer width="100%" height="100%">
@@ -211,8 +224,12 @@ export default function Dashboard() {
           <h2 className="text-lg font-semibold">Recent Commit Intelligence</h2>
         </div>
         <div className="divide-y divide-border-light dark:divide-border-dark">
-          {loading ? (
-            <div className="p-6 text-center text-slate-500">Loading commits...</div>
+          {historyLoading ? (
+            <div className="p-6 space-y-4">
+               <div className="h-6 w-1/3 bg-slate-200 dark:bg-slate-800 animate-pulse rounded"></div>
+               <div className="h-6 w-1/2 bg-slate-200 dark:bg-slate-800 animate-pulse rounded"></div>
+               <div className="h-6 w-1/4 bg-slate-200 dark:bg-slate-800 animate-pulse rounded"></div>
+            </div>
           ) : history.length === 0 ? (
             <div className="p-6 text-center text-slate-500">No commits analyzed yet.</div>
           ) : (
@@ -225,7 +242,11 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center space-x-4">
                     <div className="text-sm">
-                      Risk: <span className="font-semibold">{h.score - (h.scoreDelta || 0)}</span> &rarr; <span className="font-semibold">{h.score}</span>
+                      {h.scoreDelta === null ? (
+                        <>Baseline Score: <span className="font-semibold">{h.score}</span></>
+                      ) : (
+                        <>Security Score: <span className="font-semibold">{h.score - h.scoreDelta}</span> &rarr; <span className="font-semibold">{h.score}</span></>
+                      )}
                     </div>
                     {h.alerts && h.alerts.length > 0 && (
                       <div className="flex items-center space-x-2">
