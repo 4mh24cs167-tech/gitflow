@@ -96,46 +96,50 @@ async def create_repository(repo: RepositoryCreate, current_user: User = Depends
     
     # Fetch public metadata
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-            # Check if user has token to avoid rate limits, else do anonymous
-            token = decrypt_token(current_user.github_access_token) if current_user.github_access_token else None
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-                
-            response = await client.get(f"https://api.github.com/repos/{owner}/{repo_name}", headers=headers)
+        import subprocess, os
+        env = os.environ.copy()
+        env.update({"GIT_TERMINAL_PROMPT": "0"})
+        token = decrypt_token(current_user.github_access_token) if current_user.github_access_token else None
+        
+        url_to_check = canonical_url
+        if token:
+            url_to_check = canonical_url.replace("https://", f"https://x-access-token:{token}@")
             
-            if response.status_code == 404:
-                raise HTTPException(status_code=400, detail="Repository not found or is private")
-                
-            response.raise_for_status()
-            data = response.json()
+        result = subprocess.run(["git", "ls-remote", "--symref", url_to_check, "HEAD"], capture_output=True, text=True, timeout=15, env=env)
+        if result.returncode != 0:
+            raise HTTPException(status_code=400, detail="Repository not found, is private, or requires authentication.")
             
-            if data.get("private"):
-                raise HTTPException(status_code=400, detail="This repository is private. Public repositories are supported without GitHub account connection.")
-                
-            db_repo = Repository(
-                name=data.get("full_name") or f"{owner}/{repo_name}",
-                url=canonical_url,
-                owner_id=current_user.id,
-                provider="github",
-                github_owner=owner,
-                default_branch=data.get("default_branch"),
-                is_public=not data.get("private"),
-                github_created_at=parse_date(data.get("created_at")) if data.get("created_at") else None,
-                github_updated_at=parse_date(data.get("updated_at")) if data.get("updated_at") else None,
-                monitoring_status="POLLING_ACTIVE"
-            )
-            db.add(db_repo)
-            await db.commit()
-            await db.refresh(db_repo)
-            return db_repo
+        default_branch = "main" # fallback
+        for line in result.stdout.splitlines():
+            if line.startswith("ref: refs/heads/"):
+                parts = line.split("\t")
+                if len(parts) > 1 and parts[1] == "HEAD":
+                    default_branch = parts[0].replace("ref: refs/heads/", "")
+                    break
+                    
+        db_repo = Repository(
+            name=f"{owner}/{repo_name}",
+            url=canonical_url,
+            owner_id=current_user.id,
+            provider="github",
+            github_owner=owner,
+            default_branch=default_branch,
+            is_public=not bool(token), # approximate
+            github_created_at=None,
+            github_updated_at=None,
+            monitoring_status="POLLING_ACTIVE"
+        )
+        db.add(db_repo)
+        await db.commit()
+        await db.refresh(db_repo)
+        return db_repo
+        
     except HTTPException:
         raise
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=503, detail=f"Failed to communicate with GitHub API: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"Failed to communicate with repository via native Git: {str(e)[:200]}")
 
 
 @router.get("/", response_model=list[RepositoryResponse])
