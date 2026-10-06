@@ -25,13 +25,16 @@ def run_migrations():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        await asyncio.to_thread(run_migrations)
-        logger.info("Successfully ran database migrations.")
-    except Exception as e:
-        logger.error(f"Error running database migrations: {e}")
+        try:
+            await asyncio.to_thread(run_migrations)
+            logger.info("Successfully ran database migrations.")
+        except Exception:
+            logger.exception("Database migrations failed during startup.")
+            raise
 
-    yield
-    await engine.dispose()
+        yield
+    finally:
+        await engine.dispose()
 
 app = FastAPI(title="Software Risk Passport", lifespan=lifespan)
 

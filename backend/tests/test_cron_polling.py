@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from uuid import uuid4
 from httpx import AsyncClient, ASGITransport
+from fastapi import HTTPException
 from app.main import app
 from app.database.session import AsyncSessionLocal, engine, Base
 from app.database.models import User, Repository, Commit, Scan
@@ -59,6 +60,60 @@ async def test_polling_errors_are_returned_as_a_failed_run(monkeypatch):
     assert response.status_code == 503
     assert response.json()["status"] == "completed_with_errors"
     assert response.json()["errors"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_database_lock_failure_is_reported_as_unavailable():
+    from types import SimpleNamespace
+    from app.api.routes.admin import acquire_poll_lock
+
+    class UnavailableDatabase:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+
+        async def execute(self, *_args, **_kwargs):
+            raise RuntimeError("database unavailable")
+
+    with pytest.raises(HTTPException) as error:
+        await acquire_poll_lock(UnavailableDatabase())
+
+    assert error.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_polling_retries_transient_errors_but_skips_rewritten_history(monkeypatch):
+    from app.api.routes import admin
+
+    await engine.dispose()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    suffix = uuid4().hex
+    async with AsyncSessionLocal() as db:
+        user = User(username=f"retry-{suffix}", email=f"retry-{suffix}@example.invalid", hashed_password="test")
+        db.add(user)
+        await db.flush()
+        repositories = [
+            Repository(name="active", url="https://github.com/example/active", owner_id=user.id, monitoring_status="POLLING_ACTIVE"),
+            Repository(name="temporary-error", url="https://github.com/example/temporary-error", owner_id=user.id, monitoring_status="ERROR", last_poll_error="Temporary network error"),
+            Repository(name="rewritten", url="https://github.com/example/rewritten", owner_id=user.id, monitoring_status="ERROR", last_poll_error="ANCHOR_NOT_FOUND: history rewrite detected"),
+        ]
+        db.add_all(repositories)
+        await db.commit()
+        active_id, temporary_error_id, rewritten_id = [repo.id for repo in repositories]
+
+    called_repository_ids = []
+
+    async def successful_repository_poll(repo_id, semaphore, deadline):
+        called_repository_ids.append(repo_id)
+        return {"repo_id": repo_id, "changed": False, "commits_discovered": 0, "commits_queued": 0, "error": None, "partial": False}
+
+    monkeypatch.setattr(admin, "process_one_repository", successful_repository_poll)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/admin/polling/run", headers={"Authorization": "Bearer test-secret"})
+
+    assert response.status_code == 200
+    assert set(called_repository_ids) == {active_id, temporary_error_id}
+    assert rewritten_id not in called_repository_ids
 
 def _make_local_repository(root: Path) -> tuple[Path, list[str]]:
     """Make an isolated history inside the project; never use a network remote."""

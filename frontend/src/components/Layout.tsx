@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Shield, LayoutDashboard, GitBranch, Moon, Sun, Settings, LogOut, Bell } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
+import { Shield, LayoutDashboard, GitBranch, Moon, Sun, LogOut, Bell } from 'lucide-react';
+import { useTheme } from '../context/useTheme';
 import { useState, useEffect, useRef } from 'react';
 import { apiClient } from '../config';
 
@@ -151,7 +151,7 @@ export default function Layout() {
                               </button>
                             )}
                           </div>
-                          <p className="text-xs text-slate-500 mt-1">{new Date(n.created_at || Date.now()).toLocaleString()}</p>
+                          <p className="text-xs text-slate-500 mt-1">{n.created_at ? new Date(n.created_at).toLocaleString() : 'Date unavailable'}</p>
                         </div>
                       ))
                     )}
@@ -160,12 +160,6 @@ export default function Layout() {
               )}
             </div>
 
-            <button onClick={() => alert("Settings configuration coming soon.")} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-              <Settings className="w-5 h-5" />
-            </button>
-            <div onClick={() => alert("Profile management coming soon.")} className="w-8 h-8 rounded-full bg-gradient-to-tr from-brand-500 to-purple-500 flex items-center justify-center text-white font-medium text-sm cursor-pointer hover:opacity-90 transition-opacity">
-              JD
-            </div>
           </div>
         </header>
         <div className="flex-1 overflow-auto p-8">

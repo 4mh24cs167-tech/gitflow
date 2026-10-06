@@ -1,31 +1,24 @@
-from fastapi.testclient import TestClient
+import pytest
+from httpx import ASGITransport, AsyncClient
 from app.main import app
 from app.api.routes.repositories import get_current_user
 from app.database.models import User, Scan
-
-client = TestClient(app)
+from app.api.routes import repositories
+from unittest.mock import AsyncMock
 
 async def mock_get_current_user():
     return User(id=1, username="test_user")
 
 
 
-import unittest
-from unittest.mock import AsyncMock, patch
+@pytest.mark.asyncio
+async def test_manual_scan_request_is_accepted(monkeypatch):
+    monkeypatch.setitem(app.dependency_overrides, get_current_user, mock_get_current_user)
+    mock_queue = AsyncMock(return_value=(Scan(id=1, status="QUEUED"), True))
+    monkeypatch.setattr(repositories, "owned_repository", AsyncMock())
+    monkeypatch.setattr(repositories, "queue_scan", mock_queue)
 
-class TestManualScanRoute(unittest.TestCase):
-    def setUp(self):
-        app.dependency_overrides[get_current_user] = mock_get_current_user
-        
-    def tearDown(self):
-        app.dependency_overrides.clear()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/repositories/3/scan", json={"commit_sha": "HEAD"})
 
-    @patch('app.api.routes.repositories.owned_repository', new_callable=AsyncMock)
-    @patch('app.api.routes.repositories.queue_scan', new_callable=AsyncMock)
-    def test_no_422(self, mock_queue, mock_owned):
-        mock_queue.return_value = (Scan(id=1, status="QUEUED"), True)
-        
-        response = client.post("/repositories/3/scan", json={"commit_sha": "HEAD"})
-        
-        self.assertNotEqual(response.status_code, 422)
-        self.assertEqual(response.status_code, 200)
+    assert response.status_code == 200

@@ -22,6 +22,24 @@ services:
       - key: GITFLOW_CRON_SECRET
         sync: false
 
+  - type: cron
+    name: gitflow-polling-trigger
+    runtime: python
+    schedule: "* * * * *"
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "cd backend && python -m app.workers.cron_trigger"
+    envVars:
+      - key: GITFLOW_API_URL
+        fromService:
+          type: web
+          name: gitflow-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: GITFLOW_CRON_SECRET
+        fromService:
+          type: web
+          name: gitflow-api
+          envVarKey: GITFLOW_CRON_SECRET
+
 databases:
   - name: gitflow-db
     plan: free

@@ -87,7 +87,6 @@ async def run_scan(scan_id: int, shared_repo_dir: str = None):
                 commit.author_name = metadata_raw[1]
                 commit.author_email = metadata_raw[2]
                 try:
-                    from datetime import datetime
                     commit.committed_at = datetime.fromisoformat(metadata_raw[3]).replace(tzinfo=None)
                 except Exception as e:
                     print("Date parsing failed:", e)
@@ -169,10 +168,10 @@ async def run_scan(scan_id: int, shared_repo_dir: str = None):
                 if fingerprint not in current:
                     db.add(Finding(scan_id=scan.id, fingerprint=fingerprint, status="RESOLVED", type=finding.type, description=finding.description, file_path=finding.file_path, line_number=finding.line_number, severity=finding.severity))
             db.add(RiskScore(scan_id=scan.id, score=score_breakdown["final_score"], score_delta=calculate_score_delta(score_breakdown["final_score"], previous_score), details=json.dumps(score_breakdown)))
-            scan.status = "COMPLETED"; scan.completed_at = datetime.utcnow(); scan.error_message = None
+            scan.status = "COMPLETED"; scan.completed_at = datetime.now(timezone.utc).replace(tzinfo=None); scan.error_message = None
         except Exception as exc:
             logger.exception("Scan %s failed", scan_id)
-            scan.status = "FAILED"; scan.completed_at = datetime.utcnow(); scan.error_message = safe_error(exc); await db.commit()
+            scan.status = "FAILED"; scan.completed_at = datetime.now(timezone.utc).replace(tzinfo=None); scan.error_message = safe_error(exc); await db.commit()
         finally:
             if temp_dir:
                 if shared_repo_dir:

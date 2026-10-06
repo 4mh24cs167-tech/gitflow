@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
@@ -25,5 +25,4 @@ class RepositoryResponse(RepositoryBase):
     last_seen_sha: Optional[str] = None
     last_poll_error: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

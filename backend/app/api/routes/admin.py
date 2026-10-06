@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import subprocess
 import logging
 import time
@@ -6,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, text
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
@@ -29,7 +30,7 @@ def verify_cron_secret(request: Request) -> None:
         raise HTTPException(status_code=503, detail="Cron secret not configured")
     auth = request.headers.get("authorization", "")
     token = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else ""
-    if not token or token != settings.CRON_SECRET:
+    if not token or not hmac.compare_digest(token, settings.CRON_SECRET):
         raise HTTPException(status_code=401, detail="Invalid cron secret")
 
 # ---------------------------------------------------------------------------
@@ -60,9 +61,11 @@ async def acquire_poll_lock(db) -> bool:
             await db.commit()
             return res.rowcount > 0
     except Exception as e:
-        logger.error("Lock acquisition failed: %s", e)
-        # Fail safely: do NOT proceed
-        return False
+        logger.exception("Polling lock acquisition failed")
+        raise HTTPException(
+            status_code=503,
+            detail="Polling is unavailable because its database lock could not be acquired",
+        ) from e
 
 async def release_poll_lock(db):
     try:
@@ -164,8 +167,14 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
 
     async with AsyncSessionLocal() as db:
         repo = (await db.execute(select(Repository).where(Repository.id == repo_id))).scalars().first()
-        if not repo or repo.monitoring_status != "POLLING_ACTIVE":
+        if not repo or repo.monitoring_status not in {"POLLING_ACTIVE", "ERROR"}:
             return result
+        if repo.monitoring_status == "ERROR":
+            if (repo.last_poll_error or "").startswith("ANCHOR_NOT_FOUND:"):
+                return result
+            repo.monitoring_status = "POLLING_ACTIVE"
+            repo.last_poll_error = None
+            await db.commit()
 
         now = datetime.now(timezone.utc)
         import tempfile
@@ -350,8 +359,17 @@ async def run_polling(request: Request):
             deadline = start_time + settings.MAX_POLLING_RUNTIME_SECONDS
 
             async with AsyncSessionLocal() as db:
+                retryable_error = and_(
+                    Repository.monitoring_status == "ERROR",
+                    or_(
+                        Repository.last_poll_error.is_(None),
+                        ~Repository.last_poll_error.startswith("ANCHOR_NOT_FOUND:"),
+                    ),
+                )
                 repo_ids = (await db.execute(
-                    select(Repository.id).where(Repository.monitoring_status.in_(["POLLING_ACTIVE", "ERROR"]))
+                    select(Repository.id).where(
+                        or_(Repository.monitoring_status == "POLLING_ACTIVE", retryable_error)
+                    )
                 )).scalars().all()
 
             semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_SCANS)

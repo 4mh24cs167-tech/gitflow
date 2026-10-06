@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Shield, ChevronRight } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from '../context/useTheme';
 
 export default function Landing() {
   useTheme();

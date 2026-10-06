@@ -8,9 +8,12 @@ export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
+    setIsSubmitting(true);
     try {
       const formData = new URLSearchParams();
       formData.append('username', username);
@@ -20,7 +23,10 @@ export default function Login() {
       localStorage.setItem('access_token', res.data.access_token);
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed');
+      const detail = err.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Sign in failed. Check your details and try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -37,36 +43,39 @@ export default function Login() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Sign in to your account to continue</p>
         </div>
 
-        {error && <div className="mb-4 text-red-500 text-sm text-center">{error}</div>}
+        {error && <div role="alert" aria-live="polite" className="mb-4 text-red-500 text-sm text-center">{error}</div>}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1.5 text-slate-700 dark:text-slate-300">Email or Username</label>
+            <label htmlFor="login-username" className="block text-sm font-medium mb-1.5 text-slate-700 dark:text-slate-300">Email or Username</label>
             <input 
+              id="login-username"
               type="text" 
               required
+              autoComplete="username"
               value={username}
-              onChange={(e: any) => setUsername(e.target.value)}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition-shadow"
               placeholder="you"
             />
           </div>
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Password</label>
-              <a href="#" className="text-xs text-brand-600 dark:text-brand-400 hover:underline">Forgot password?</a>
+            <div className="mb-1.5">
+              <label htmlFor="login-password" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Password</label>
             </div>
             <input 
+              id="login-password"
               type="password" 
               required
+              autoComplete="current-password"
               value={password}
-              onChange={(e: any) => setPassword(e.target.value)}
+              onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-border-light dark:border-border-dark bg-background-light dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition-shadow"
               placeholder="••••••••"
             />
           </div>
-          <button type="submit" className="w-full py-2.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-medium transition-colors mt-2 shadow-lg shadow-brand-500/25">
-            Sign In
+          <button type="submit" disabled={isSubmitting} className="w-full py-2.5 rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium transition-colors mt-2 shadow-lg shadow-brand-500/25">
+            {isSubmitting ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
 

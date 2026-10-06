@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, UniqueConstraint, Text
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database.session import Base
 
 class User(Base):
@@ -62,7 +62,8 @@ class Scan(Base):
     id = Column(Integer, primary_key=True, index=True)
     commit_id = Column(Integer, ForeignKey("commits.id", ondelete="CASCADE"), nullable=False, unique=True)
     status = Column(String, default="QUEUED", nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # Existing naive DB columns store UTC values; preserve that schema while avoiding deprecated utcnow().
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     completed_at = Column(DateTime, nullable=True)
 
     commit = relationship("Commit", back_populates="scans")
@@ -107,7 +108,7 @@ class WebhookDelivery(Base):
     status = Column(String, nullable=False)
     payload_sha = Column(String)
     error_message = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     repository = relationship('Repository')
 
@@ -137,7 +138,7 @@ class Notification(Base):
     title = Column(String, nullable=False)
     message = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     user = relationship('User')
     repository = relationship('Repository')
