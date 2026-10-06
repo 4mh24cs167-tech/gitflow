@@ -13,6 +13,7 @@
 - **Diff formatting:** `git diff --check` passed.
 - **Current automated failures:** none.
 - **Production/browser verification:** not completed. The test environment did not have an available browser automation runner or access to the Render dashboard, production database, and real GitHub credentials. These limits are described below; local test success is not a guarantee of error-free behavior under every deployment or workload.
+- **Production data durability:** not ready for real users while the database remains on Render’s free plan; the current Blueprint explicitly selects that plan.
 
 ## What I tested
 
@@ -68,7 +69,8 @@ Run a production-like load test before advertising capacity. Measure dashboard u
 
 - **UI:** test keyboard navigation, mobile layouts, loading/empty/error states, and real sign-in/repository connection flows in a browser. Consider a clear retry action for failed scans after deciding the recovery behavior.
 - **Backend:** repeated bare clones add work to every changed-repository poll (`backend/app/api/routes/admin.py:104-128`). A persistent mirror or durable scan queue could improve throughput, but requires storage, retry, and multi-instance design. I did not add that architecture in this pass.
-- **Deployment:** sync the Render Blueprint, confirm the cron service appears with a one-minute schedule, verify the secret reference resolves, and inspect at least one successful run and its API response. Render cron jobs have a minimum monthly charge of $1 per service; runtime billing may add to that. [Render Cron Jobs and pricing](https://render.com/docs/cronjobs)
+- **Deployment:** the current `render.yaml` sets `gitflow-db` to `plan: free`. Render documents that free Postgres expires 30 days after creation, is limited to 1 GB, and has no backups. After expiry there is a 14-day upgrade grace period; Render deletes the database and its data after that. Upgrade to a paid database and establish a backup/recovery plan before relying on this app for real users. [Render free instance and Postgres limits](https://render.com/docs/free)
+- Sync the Render Blueprint, confirm the cron service appears with a one-minute schedule, verify the secret reference resolves, and inspect at least one successful run and its API response. The Blueprint was not schema-validated or applied to the live Render account during this review. Render cron jobs have a minimum monthly charge of $1 per service; runtime billing may add to that. [Render Cron Jobs and pricing](https://render.com/docs/cronjobs)
 - **Open source:** the GitHub repository is public, but the root has no `README` or `LICENSE`. Without a license, visitors do not receive general permission to reuse, modify, or redistribute the code. Choose a license before marketing this as open-source software. [GitHub licensing guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository)
 - **Before wider release:** add setup/environment-variable documentation (never secret values), supported repository types, screenshots, limitations, contribution instructions, and security-reporting guidance. A README, license, contribution guide, and code of conduct are useful project basics. [Open Source Guides: starting a project](https://opensource.guide/starting-a-project/)
 
