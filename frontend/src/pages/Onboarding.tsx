@@ -33,6 +33,9 @@ export default function Onboarding() {
       
       const status = res.data.status;
       setScanStatus(status);
+      if (status === 'FAILED') {
+        setErrorMsg(res.data.error_message || 'The scan failed without an additional message. Try again or contact support with the scan ID.');
+      }
       if (res.data.commit_sha && res.data.commit_sha !== "HEAD") {
           setScannedSha(res.data.commit_sha.substring(0, 7));
       }
@@ -185,9 +188,9 @@ export default function Onboarding() {
                 <div className="w-20 h-20 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-6">
                   <GitBranch className="w-10 h-10 text-slate-700 dark:text-slate-300" />
                 </div>
-                <h2 className="text-2xl font-bold mb-2">Connect a Public Repository</h2>
+                <h2 className="text-2xl font-bold mb-2">Connect a GitHub Repository</h2>
                 <p className="text-slate-500 dark:text-slate-400 max-w-md">
-                  Enter the URL of a public GitHub repository to generate its Risk Passport and monitor future commits.
+                  Enter a GitHub repository URL to create its Risk Passport and monitor new commits. Private repositories require a GitHub account with access.
                 </p>
               </div>
 
@@ -259,6 +262,7 @@ export default function Onboarding() {
                   </div>
                   <h2 className="text-2xl font-bold mb-2">Scan failed</h2>
                   <p className="text-slate-500 dark:text-slate-400 mb-8">{errorMsg || "The background worker encountered an error while scanning the repository."}</p>
+                  <p className="text-xs text-slate-400 mb-6">Scan ID: {scanId}{scannedSha ? ` · Commit: ${scannedSha}` : ''}</p>
                   <div className="flex space-x-4">
                     <button 
                       onClick={() => { setStep(1); setScanning(false); setScanStatus(null); }}

@@ -1,6 +1,7 @@
 import re
+import logging
 from urllib.parse import urlparse
-from app.utils.github import get_canonical_github_url
+from app.utils.github import get_canonical_github_url, git_environment
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from jose import JWTError, jwt
@@ -19,7 +20,35 @@ class ScanRequest(BaseModel):
     commit_sha: str
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
+logger = logging.getLogger(__name__)
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+
+def public_scan_error(message: str | None, scan_id: int) -> str | None:
+    if not message:
+        return None
+    if message in {
+        "The repository operation timed out. Try again shortly.",
+        "The scan encountered an unexpected error. Please retry; contact support if it happens again.",
+        "GitHub authentication is required to scan this private repository",
+    } or re.fullmatch(r"Git could not read the repository \(exit code \d+\)\. Check repository access and try again\.", message):
+        return message
+    # Older scans may contain tracebacks or raw Git output; never expose those to the browser.
+    return f"This scan failed. Retry it, or contact support with scan ID {scan_id}."
+
+
+def public_poll_error(message: str | None) -> str | None:
+    if not message:
+        return None
+    safe_values = {
+        "git ls-remote failed",
+        "Git could not fetch repository history",
+        "ANCHOR_NOT_FOUND: history rewrite detected",
+        "GitHub authentication required for this private repository",
+        "Repository polling failed. Check repository access and try again.",
+    }
+    if message in safe_values or re.fullmatch(r"Scan failed for [0-9a-fA-F]{7}", message):
+        return message
+    return "Repository polling failed. Check repository access and try again."
 
 
 
@@ -56,7 +85,12 @@ async def queue_scan(repository_id: int, commit_sha: str, current_user: User, db
         try:
             import subprocess
             cmd = ["git", "ls-remote", repo.url, "HEAD"]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
+            oauth_token = decrypt_token(current_user.github_access_token or "")
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=True, timeout=10,
+                env=git_environment(oauth_token),
+            )
+            oauth_token = None
             output = result.stdout.strip()
             if output:
                 sha = output.split()[0].lower()
@@ -96,16 +130,16 @@ async def create_repository(repo: RepositoryCreate, current_user: User = Depends
     
     # Fetch public metadata
     try:
-        import subprocess, os
-        env = os.environ.copy()
-        env.update({"GIT_TERMINAL_PROMPT": "0"})
+        import subprocess
         token = decrypt_token(current_user.github_access_token) if current_user.github_access_token else None
-        
-        url_to_check = canonical_url
-        if token:
-            url_to_check = canonical_url.replace("https://", f"https://x-access-token:{token}@")
-            
-        result = subprocess.run(["git", "ls-remote", "--symref", url_to_check, "HEAD"], capture_output=True, text=True, timeout=15, env=env)
+        command = ["git", "ls-remote", "--symref", canonical_url, "HEAD"]
+        # Try public access first so a connected GitHub account does not cause public
+        # repositories to be mislabeled as private or send credentials unnecessarily.
+        result = subprocess.run(command, capture_output=True, text=True, timeout=15, env=git_environment())
+        repository_is_public = result.returncode == 0
+        if result.returncode != 0 and token:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=15, env=git_environment(token))
+        token = None
         if result.returncode != 0:
             raise HTTPException(status_code=400, detail="Repository not found, is private, or requires authentication.")
             
@@ -124,7 +158,7 @@ async def create_repository(repo: RepositoryCreate, current_user: User = Depends
             provider="github",
             github_owner=owner,
             default_branch=default_branch,
-            is_public=not bool(token), # approximate
+            is_public=repository_is_public,
             github_created_at=None,
             github_updated_at=None,
             monitoring_status="POLLING_ACTIVE"
@@ -136,15 +170,17 @@ async def create_repository(repo: RepositoryCreate, current_user: User = Depends
         
     except HTTPException:
         raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=503, detail=f"Failed to communicate with repository via native Git: {str(e)[:200]}")
+    except Exception:
+        logger.exception("Repository connection failed for user %s", current_user.id)
+        raise HTTPException(status_code=503, detail="Could not connect to GitHub. Check the repository URL and your access, then try again.")
 
 
 @router.get("/", response_model=list[RepositoryResponse])
 async def list_repositories(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    return list((await db.execute(select(Repository).where(Repository.owner_id == current_user.id))).scalars())
+    repos = list((await db.execute(select(Repository).where(Repository.owner_id == current_user.id))).scalars())
+    for repo in repos:
+        repo.last_poll_error = public_poll_error(repo.last_poll_error)
+    return repos
 
 @router.get("/github")
 async def list_github_repositories(current_user: User = Depends(get_current_user)):
@@ -178,7 +214,7 @@ async def trigger_manual_scan(repository_id: int, request: ScanRequest, backgrou
 async def get_repository_scans(repository_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     await owned_repository(repository_id, current_user, db)
     scans = (await db.execute(select(Scan).join(Scan.commit).options(selectinload(Scan.commit), selectinload(Scan.risk_score), selectinload(Scan.findings)).where(Commit.repository_id == repository_id).order_by(Scan.created_at.desc()))).scalars().all()
-    return [{"id": s.id, "commit_sha": s.commit.hash, "status": s.status, "score": s.risk_score.score if s.risk_score else None, "score_details": s.risk_score.details if s.risk_score else None, "created_at": s.created_at, "findings_count": len(s.findings), "error_message": s.error_message} for s in scans]
+    return [{"id": s.id, "commit_sha": s.commit.hash, "status": s.status, "score": s.risk_score.score if s.risk_score else None, "score_details": s.risk_score.details if s.risk_score else None, "created_at": s.created_at, "findings_count": len(s.findings), "error_message": public_scan_error(s.error_message, s.id)} for s in scans]
 
 @router.get("/{repository_id}/risk-history")
 async def get_risk_history(repository_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -186,10 +222,16 @@ async def get_risk_history(repository_id: int, current_user: User = Depends(get_
     from sqlalchemy.orm import selectinload
     from app.database.models import Notification
     scans = (await db.execute(select(Scan).join(Scan.commit).options(selectinload(Scan.commit), selectinload(Scan.risk_score), selectinload(Scan.findings)).where(Commit.repository_id == repository_id, Scan.status == "COMPLETED").order_by(Scan.completed_at.asc()))).scalars().all()
-    
+    notifications_by_scan: dict[int, list] = {}
+    if scans:
+        scan_ids = [scan.id for scan in scans]
+        notifications = (await db.execute(select(Notification).where(Notification.scan_id.in_(scan_ids)))).scalars().all()
+        for notification in notifications:
+            notifications_by_scan.setdefault(notification.scan_id, []).append(notification)
+
     result = []
     for s in scans:
-        notifications = (await db.execute(select(Notification).where(Notification.scan_id == s.id))).scalars().all()
+        notifications = notifications_by_scan.get(s.id, [])
         result.append({
             "id": s.id,
             "commit_sha": s.commit.hash, 
@@ -272,6 +314,7 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
         "score_details": json.loads(scan.risk_score.details) if scan.risk_score and scan.risk_score.details else {},
         "previous_commit": previous_commit_obj,
         "actions_detected": actions_detected,
+        "error_message": public_scan_error(scan.error_message, scan.id),
         "notifications": [{"id": n.id, "type": n.type, "title": n.title, "message": n.message} for n in notifications]
     }
 

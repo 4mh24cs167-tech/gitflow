@@ -3,6 +3,19 @@ import { useParams } from 'react-router-dom';
 import { ShieldAlert, AlertTriangle, FileText, Shield, Zap, CheckCircle, Activity } from 'lucide-react';
 import { apiClient } from '../config';
 
+function securityGuidance(category: string) {
+  switch (category?.toLowerCase()) {
+    case 'secret':
+      return 'Security: if this is a real credential, revoke or rotate it and remove it from the repository history.';
+    case 'vulnerability':
+      return 'Security: review the affected dependency and update to a patched version.';
+    case 'dependencyscan':
+      return 'Security: dependency results are incomplete. Install or restore the dependency scanner and run this scan again.';
+    default:
+      return 'Review this finding and its file location to decide whether it needs a change.';
+  }
+}
+
 export default function CommitAudit() {
   const { repositoryId, scanId } = useParams();
   const [data, setData] = useState<any>(null);
@@ -11,7 +24,6 @@ export default function CommitAudit() {
 
   useEffect(() => {
     if (!repositoryId || !scanId) {
-      setLoading(false);
       return;
     }
     const fetchData = async () => {
@@ -27,9 +39,8 @@ export default function CommitAudit() {
     fetchData();
   }, [repositoryId, scanId]);
 
+  if (!repositoryId || !scanId) return <div role="alert" className="p-8 text-center text-slate-500">This audit link is missing its repository or scan ID.</div>;
   if (loading) return <div className="p-8 text-center text-slate-500">Loading audit data...</div>;
-
-  if (!repositoryId || !scanId) return null;
 
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
   if (!data) return <div className="p-8 text-center text-slate-500">No data found.</div>;
@@ -42,10 +53,10 @@ export default function CommitAudit() {
   const unchangedFindings = data.findings?.filter((f: any) => f.status === 'UNCHANGED') || [];
   const resolvedFindings = data.findings?.filter((f: any) => f.status === 'RESOLVED') || [];
   
-  const addedFiles = data.changes?.filter((c: any) => c.type === 'added') || [];
-  const modifiedFiles = data.changes?.filter((c: any) => c.type === 'modified') || [];
-  const removedFiles = data.changes?.filter((c: any) => c.type === 'deleted') || [];
-  const renamedFiles = data.changes?.filter((c: any) => c.type === 'renamed') || [];
+  const addedFiles = data.changes?.filter((c: any) => c.status === 'A' || c.status?.startsWith('C')) || [];
+  const modifiedFiles = data.changes?.filter((c: any) => ['M', 'T', 'U', 'X', 'B'].includes(c.status)) || [];
+  const removedFiles = data.changes?.filter((c: any) => c.status === 'D') || [];
+  const renamedFiles = data.changes?.filter((c: any) => c.status?.startsWith('R')) || [];
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
@@ -97,6 +108,14 @@ export default function CommitAudit() {
         </div>
       </div>
 
+      {data.status === 'FAILED' && (
+        <div role="alert" className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 p-5 text-red-700 dark:text-red-300">
+          <h2 className="font-semibold">This scan did not complete</h2>
+          <p className="mt-1 text-sm">{data.error_message || 'The scan failed without an additional message. You can retry it from the dashboard.'}</p>
+          <p className="mt-2 text-xs">Scan ID: {data.id} · Commit: {data.commit_sha?.substring(0, 7)}</p>
+        </div>
+      )}
+
       {/* WHY THE SCORE CHANGED */}
       {prevCommit && (
         <div className="rounded-xl border border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark shadow-soft p-6">
@@ -145,7 +164,7 @@ export default function CommitAudit() {
             <div>
               <h4 className="text-xs font-semibold uppercase text-emerald-500 mb-2">Added ({addedFiles.length})</h4>
               <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1 font-mono text-xs overflow-hidden">
-                {addedFiles.map((c: any, i: number) => <li key={i} className="truncate" title={c.file}>+ {c.file.split('/').pop()}</li>)}
+                {addedFiles.map((c: any, i: number) => <li key={i} className="break-all" title={c.file}>+ {c.file}</li>)}
               </ul>
             </div>
           )}
@@ -153,7 +172,7 @@ export default function CommitAudit() {
             <div>
               <h4 className="text-xs font-semibold uppercase text-brand-500 mb-2">Modified ({modifiedFiles.length})</h4>
               <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1 font-mono text-xs overflow-hidden">
-                {modifiedFiles.map((c: any, i: number) => <li key={i} className="truncate" title={c.file}>+ {c.file.split('/').pop()}</li>)}
+                {modifiedFiles.map((c: any, i: number) => <li key={i} className="break-all" title={c.file}>~ {c.file}</li>)}
               </ul>
             </div>
           )}
@@ -161,7 +180,7 @@ export default function CommitAudit() {
             <div>
               <h4 className="text-xs font-semibold uppercase text-red-500 mb-2">Removed ({removedFiles.length})</h4>
               <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1 font-mono text-xs overflow-hidden">
-                {removedFiles.map((c: any, i: number) => <li key={i} className="truncate" title={c.file}>- {c.file.split('/').pop()}</li>)}
+                {removedFiles.map((c: any, i: number) => <li key={i} className="break-all" title={c.file}>- {c.file}</li>)}
               </ul>
             </div>
           )}
@@ -169,7 +188,7 @@ export default function CommitAudit() {
             <div>
               <h4 className="text-xs font-semibold uppercase text-amber-500 mb-2">Renamed ({renamedFiles.length})</h4>
               <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1 font-mono text-xs overflow-hidden">
-                {renamedFiles.map((c: any, i: number) => <li key={i} className="truncate" title={c.file}>~ {c.file.split('/').pop()}</li>)}
+                {renamedFiles.map((c: any, i: number) => <li key={i} className="break-all" title={c.file}>→ {c.file}</li>)}
               </ul>
             </div>
           )}
@@ -197,7 +216,8 @@ export default function CommitAudit() {
                       <span className="text-slate-700 dark:text-slate-300 font-medium">{f.title}</span>
                     </div>
                     <div className="text-slate-600 dark:text-slate-400 pl-4">
-                      <p>Potential {f.title.toLowerCase()} detected in <span className="font-mono text-xs">{f.file_path}</span>{f.line_number ? ` (line ${f.line_number})` : ''}. If this value is real, it may expose access when the repository is shared. Review recommended.</p>
+                      <p>{f.description || `Potential ${f.title.toLowerCase()} detected.`} Location: <span className="font-mono text-xs">{f.file_path || 'repository'}</span>{f.line_number ? `, line ${f.line_number}` : ', file-level finding (no single line)' }.</p>
+                      <p className="mt-2 text-xs font-medium">{securityGuidance(f.title)}</p>
                     </div>
                   </div>
                 ))}
@@ -218,7 +238,7 @@ export default function CommitAudit() {
                       <span className="text-slate-700 dark:text-slate-300 font-medium">{f.title}</span>
                     </div>
                     <div className="text-slate-600 dark:text-slate-400 pl-4 font-mono text-xs">
-                      {f.file_path}
+                      {f.file_path}{f.line_number ? ` (line ${f.line_number})` : ''}
                     </div>
                   </div>
                 ))}

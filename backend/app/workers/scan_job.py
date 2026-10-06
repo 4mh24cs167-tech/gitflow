@@ -1,8 +1,8 @@
 import json
-import os
 import shutil
 import subprocess
 import tempfile
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from sqlalchemy import select
@@ -10,17 +10,21 @@ from app.auth.security import decrypt_token
 from app.config import settings
 from app.database.models import Commit, Finding, Repository, RiskScore, Scan, User
 from app.database.session import AsyncSessionLocal
+from app.utils.github import git_environment
 from app.scanners.universal import UniversalScanner
 from app.scoring.engine import calculate_risk_score
 
+logger = logging.getLogger(__name__)
+
 def safe_error(exc: Exception) -> str:
-    """Keep operational errors useful without returning paths, URLs, or credentials."""
-    if isinstance(exc, subprocess.TimeoutExpired): return "Git operation timed out"
-    if isinstance(exc, subprocess.CalledProcessError): 
-        err = exc.stderr if hasattr(exc, 'stderr') and exc.stderr else str(exc)
-        return f"Git could not retrieve the requested commit: {err}"
-    import traceback
-    return f"Scan failed while analyzing the repository: {str(exc)} \n {''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}"
+    """Return actionable user-safe errors; detailed traces belong in server logs."""
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "The repository operation timed out. Try again shortly."
+    if isinstance(exc, subprocess.CalledProcessError):
+        return f"Git could not read the repository (exit code {exc.returncode}). Check repository access and try again."
+    if isinstance(exc, RuntimeError) and str(exc) == "GitHub authentication is required to scan this private repository":
+        return str(exc)
+    return "The scan encountered an unexpected error. Please retry; contact support if it happens again."
 
 def calculate_score_delta(current_score: int, previous_score: int | None) -> int | None:
     """Return a persisted history delta; the first completed scan has no baseline."""
@@ -40,7 +44,6 @@ async def previous_completed_score(db, repository_id: int, current_scan_id: int)
 
 async def run_scan(scan_id: int, shared_repo_dir: str = None):
     temp_dir = None
-    askpass_path = None
     async with AsyncSessionLocal() as db:
         scan = (await db.execute(select(Scan).where(Scan.id == scan_id))).scalars().first()
         if not scan or scan.status != "QUEUED": return
@@ -56,24 +59,8 @@ async def run_scan(scan_id: int, shared_repo_dir: str = None):
             
             temp_dir = tempfile.mkdtemp(prefix="risk_passport_scan_")
             
-            env = os.environ.copy()
-            env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
-            
-            if oauth_token:
-                # Git requests credentials from this short-lived helper. The token exists
-                # only in this child process environment; it is never in a URL, command
-                # line, or repository configuration file.
-                helper = tempfile.NamedTemporaryFile(mode="w", suffix=".cmd", prefix="risk_passport_askpass_", delete=False, encoding="utf-8")
-                helper.write("@echo off\r\n")
-                helper.write("echo %~1 | findstr /i /c:\"username\" >nul\r\n")
-                helper.write("if not errorlevel 1 (echo x-access-token) else (echo %GITHUB_OAUTH_TOKEN%)\r\n")
-                helper.close()
-                askpass_path = helper.name
-                
-                # Preserve host networking/proxy configuration while overriding only
-                # Git controls needed for non-interactive, in-memory authentication.
-                env.update({"GIT_ASKPASS": askpass_path, "GIT_ASKPASS_REQUIRE": "force", "GITHUB_OAUTH_TOKEN": oauth_token})
-                
+            env = git_environment(oauth_token)
+
             if shared_repo_dir:
                 # Reuse the bare clone from the polling invocation. 
                 # This guarantees zero duplicate object fetches across B/C/D!
@@ -83,11 +70,10 @@ async def run_scan(scan_id: int, shared_repo_dir: str = None):
                 # newer commits reach the branch. --no-checkout prevents hooks/scripts.
                 subprocess.run(["git", "clone", "--no-checkout", repo.url, temp_dir], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
             
-            if oauth_token:
-                del oauth_token
-                env.pop("GITHUB_OAUTH_TOKEN", None)
-                env.pop("GIT_ASKPASS", None)
-                
+            oauth_token = None
+            env.pop("GIT_CONFIG_VALUE_0", None)
+            env.pop("GIT_CONFIG_COUNT", None)
+            env.pop("GIT_CONFIG_KEY_0", None)
             if not shared_repo_dir:
                 subprocess.run(["git", "-C", temp_dir, "checkout", "--detach", commit.hash], check=True, capture_output=True, text=True, timeout=settings.SCAN_TIMEOUT_SECONDS, env=env)
                 
@@ -185,13 +171,11 @@ async def run_scan(scan_id: int, shared_repo_dir: str = None):
             db.add(RiskScore(scan_id=scan.id, score=score_breakdown["final_score"], score_delta=calculate_score_delta(score_breakdown["final_score"], previous_score), details=json.dumps(score_breakdown)))
             scan.status = "COMPLETED"; scan.completed_at = datetime.utcnow(); scan.error_message = None
         except Exception as exc:
+            logger.exception("Scan %s failed", scan_id)
             scan.status = "FAILED"; scan.completed_at = datetime.utcnow(); scan.error_message = safe_error(exc); await db.commit()
         finally:
             if temp_dir:
                 if shared_repo_dir:
                     subprocess.run(["git", "-C", shared_repo_dir, "worktree", "remove", "--force", temp_dir], check=False, capture_output=True)
                 shutil.rmtree(temp_dir, ignore_errors=True)
-            if askpass_path:
-                try: os.remove(askpass_path)
-                except OSError: pass
         await db.commit()

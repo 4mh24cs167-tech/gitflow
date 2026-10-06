@@ -19,14 +19,22 @@ export default function RiskPassport() {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+    let hasLoaded = false;
     const fetchData = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      if (!hasLoaded) setLoading(true);
       try {
-        setLoading(true);
-                // 1. Get repos
+        // 1. Get repos
         const repoRes = await apiClient.get(`/repositories/`);
+        if (cancelled) return;
         setRepos(repoRes.data);
         if (repoRes.data.length === 0) {
-          setLoading(false);
+          setRepo(null);
+          setHistory([]);
+          setLatestScan(null);
           return;
         }
         
@@ -39,30 +47,48 @@ export default function RiskPassport() {
                 localStorage.setItem('gitflow_active_repo', activeRepo.id.toString());
             } else {
                 setNeedsSelection(true);
-                setLoading(false);
                 return;
             }
         }
+        setNeedsSelection(false);
         setRepo(activeRepo);
 
         // 2. Get history
         const histRes = await apiClient.get(`/repositories/${activeRepo.id}/risk-history`);
+        if (cancelled) return;
         setHistory(histRes.data);
 
         // 3. Get latest scan if exists
         if (histRes.data.length > 0) {
           const latest = histRes.data[histRes.data.length - 1];
           const scanRes = await apiClient.get(`/repositories/${activeRepo.id}/scans/${latest.id}`);
+          if (cancelled) return;
           setLatestScan(scanRes.data);
-        }
-        setLoading(false);
+        } else setLatestScan(null);
       } catch (err: any) {
         console.error(err);
-        setError('Failed to load Security Passport data.');
-        setLoading(false);
+        if (!hasLoaded && !cancelled) setError('Failed to load Security Passport data.');
+      } finally {
+        inFlight = false;
+        if (!cancelled) {
+          hasLoaded = true;
+          setLoading(false);
+        }
       }
     };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') fetchData();
+    };
     fetchData();
+    const interval = window.setInterval(refreshWhenVisible, 30000);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, []);
 
   if (loading) return <div className="p-8 text-center text-slate-500">Loading Security Passport...</div>;

@@ -1,11 +1,19 @@
 import pytest
-from httpx import Response, AsyncClient, ASGITransport, Request
+import subprocess
+from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.database.models import User, Repository
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from unittest.mock import AsyncMock
 
-async def setup_deps():
+
+@pytest.fixture(autouse=True)
+def clear_dependency_overrides():
+    yield
+    app.dependency_overrides.clear()
+
+async def setup_deps(github_access_token=None):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         from app.database.models import Base
@@ -23,7 +31,7 @@ async def setup_deps():
             yield db
             
     async def override_get_current_user():
-        return User(id=1, username="test_user", is_active=True)
+        return User(id=1, username="test_user", is_active=True, github_access_token=github_access_token)
         
     from app.database.session import get_db
     from app.api.routes.repositories import get_current_user
@@ -34,20 +42,11 @@ async def setup_deps():
 @pytest.mark.asyncio
 async def test_create_public_repository(monkeypatch):
     await setup_deps()
-    original_get = AsyncClient.get
-    async def mock_get(self, url, *args, **kwargs):
-        if str(url).startswith("https://api.github.com"):
-            if str(url) == "https://api.github.com/repos/owner/repo":
-                return Response(200, request=Request('GET', url), json={
-                    "full_name": "owner/repo",
-                    "default_branch": "main",
-                    "private": False,
-                    "created_at": "2020-01-01T00:00:00Z",
-                    "updated_at": "2020-01-01T00:00:00Z"
-                })
-            return Response(404, request=Request('GET', url))
-        return await original_get(self, url, *args, **kwargs)
-    monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
+    def mock_run(command, **kwargs):
+        assert "--symref" in command
+        assert "owner/repo" in command[-2]
+        return subprocess.CompletedProcess(command, 0, "ref: refs/heads/main\tHEAD\n" + "a" * 40 + "\tHEAD\n", "")
+    monkeypatch.setattr(subprocess, "run", mock_run)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post("/repositories/", json={"name": "repo", "url": "https://github.com/owner/repo"})
@@ -71,33 +70,51 @@ async def test_create_public_repository(monkeypatch):
 @pytest.mark.asyncio
 async def test_create_private_repository(monkeypatch):
     await setup_deps()
-    original_get = AsyncClient.get
-    async def mock_get(self, url, *args, **kwargs):
-        if str(url).startswith("https://api.github.com"):
-            return Response(200, request=Request('GET', url), json={
-                "full_name": "owner/privaterepo",
-                "default_branch": "main",
-                "private": True
-            })
-        return await original_get(self, url, *args, **kwargs)
-    monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
+    def mock_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 128, "", "repository not found")
+    monkeypatch.setattr(subprocess, "run", mock_run)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post("/repositories/", json={"name": "repo", "url": "https://github.com/owner/privaterepo"})
         assert res.status_code == 400
-        assert "This repository is private" in res.json()["detail"]
+        assert res.json()["detail"] == "Repository not found, is private, or requires authentication."
+
+
+@pytest.mark.asyncio
+async def test_authenticated_private_repository_stays_private(monkeypatch):
+    await setup_deps(github_access_token="encrypted-token")
+    from app.api.routes import repositories
+    monkeypatch.setattr(repositories, "decrypt_token", lambda value: "test-github-token")
+    calls = []
+
+    def mock_run(command, **kwargs):
+        calls.append((command, kwargs))
+        if kwargs["env"].get("GIT_CONFIG_COUNT"):
+            return subprocess.CompletedProcess(command, 0, "ref: refs/heads/main\tHEAD\n" + "b" * 40 + "\tHEAD\n", "")
+        return subprocess.CompletedProcess(command, 128, "", "repository not found")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/repositories/", json={"name": "repo", "url": "https://github.com/owner/private-repo"})
+        assert res.status_code == 200
+        assert res.json()["is_public"] is False
+        assert len(calls) == 2
+        assert all("test-github-token" not in " ".join(call[0]) for call in calls)
 
 @pytest.mark.asyncio
 async def test_initial_scan_resolves_head(monkeypatch):
-    await setup_deps()
-    original_get = AsyncClient.get
-    async def mock_get(self, url, *args, **kwargs):
-        if str(url).startswith("https://api.github.com"):
-            return Response(200, request=Request('GET', url), json={
-                "sha": "1234567890123456789012345678901234567890"
-            })
-        return await original_get(self, url, *args, **kwargs)
-    monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
+    await setup_deps(github_access_token="encrypted-token")
+    from app.api.routes import repositories
+    monkeypatch.setattr(repositories, "decrypt_token", lambda value: "test-github-token")
+    scan_worker = AsyncMock()
+    monkeypatch.setattr(repositories, "run_scan", scan_worker)
+    resolved_sha = "1234567890123456789012345678901234567890"
+
+    def mock_run(command, **kwargs):
+        assert "test-github-token" not in " ".join(command)
+        assert kwargs["env"].get("GIT_CONFIG_COUNT") == "1"
+        return subprocess.CompletedProcess(command, 0, f"{resolved_sha}\tHEAD\n", "")
+    monkeypatch.setattr(subprocess, "run", mock_run)
 
     from app.database.session import get_db
     async for db in app.dependency_overrides[get_db]():
@@ -113,4 +130,5 @@ async def test_initial_scan_resolves_head(monkeypatch):
         assert res_get.status_code == 200
         scans = res_get.json()
         assert len(scans) > 0
-        assert scans[0]["commit_sha"] == "1234567890123456789012345678901234567890"
+        assert scans[0]["commit_sha"] == resolved_sha
+        scan_worker.assert_awaited_once()

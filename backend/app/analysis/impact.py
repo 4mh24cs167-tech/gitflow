@@ -17,7 +17,7 @@ def analyze_commit_changes(repo_dir: str, current_sha: str) -> List[Dict[str, An
     except Exception:
         parent_sha = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-    status_out = run_git_command(repo_dir, ["git", "diff-tree", "--no-commit-id", "--name-status", "-r", parent_sha, current_sha])
+    status_out = run_git_command(repo_dir, ["git", "diff-tree", "--no-commit-id", "--name-status", "-M", "-r", parent_sha, current_sha])
     numstat_out = run_git_command(repo_dir, ["git", "diff", "--numstat", parent_sha, current_sha])
     
     numstat = {}

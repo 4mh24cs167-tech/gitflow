@@ -5,14 +5,16 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.database.session import AsyncSessionLocal
-from app.database.models import Repository, Scan, Commit
+from app.database.models import Repository, Scan, Commit, User
 from app.workers.scan_job import run_scan
-from app.utils.github import get_canonical_github_url
+from app.utils.github import get_canonical_github_url, git_environment
+from app.auth.security import decrypt_token
 
 logger = logging.getLogger(__name__)
 
@@ -77,38 +79,53 @@ async def release_poll_lock(db):
 # Core Monitoring Logic
 # ---------------------------------------------------------------------------
 
-def resolve_remote_head(url: str) -> str | None:
+def resolve_remote_head(url: str, oauth_token: str | None = None) -> tuple[str, str | None] | None:
     try:
         result = subprocess.run(
-            ["git", "ls-remote", url, "HEAD"],
+            ["git", "ls-remote", "--symref", url, "HEAD"],
             capture_output=True, text=True, timeout=15,
-            env={**__import__("os").environ, "GIT_TERMINAL_PROMPT": "0"}
+            env=git_environment(oauth_token)
         )
         if result.returncode == 0 and result.stdout.strip():
-            sha = result.stdout.strip().split()[0].lower()
-            if len(sha) == 40:
-                return sha
+            sha = None
+            branch = None
+            for line in result.stdout.splitlines():
+                value, _, ref = line.partition("\t")
+                if ref == "HEAD" and value.startswith("ref: refs/heads/"):
+                    branch = value.removeprefix("ref: refs/heads/")
+                elif ref == "HEAD" and len(value) == 40:
+                    sha = value.lower()
+            if sha:
+                return sha, branch
     except Exception as e:
         logger.warning("git ls-remote failed for %s: %s", url, e)
     return None
 
 async def fetch_missing_commits(
-    owner: str, repo_name: str, default_branch: str, last_processed_sha: str | None, max_commits: int, bare_repo_dir: str
+    owner: str, repo_name: str, default_branch: str, last_processed_sha: str | None, max_commits: int, bare_repo_dir: str,
+    oauth_token: str | None = None,
 ) -> dict:
     import asyncio
-    import os
 
     url = f"https://github.com/{owner}/{repo_name}.git"
-    env = os.environ.copy()
-    env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
+    env = git_environment(oauth_token)
 
-    # Shallow bare clone using partial clone feature to avoid downloading file blobs
-    clone_cmd = ["git", "clone", "--bare", "--filter=blob:none", url, bare_repo_dir]
-    proc = await asyncio.create_subprocess_exec(
-        *clone_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    await proc.communicate()
-    if proc.returncode != 0:
+    async def run_git(*args: str) -> tuple[int, bytes, bytes]:
+        proc = await asyncio.create_subprocess_exec(
+            "git", *args, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=settings.SCAN_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            raise TimeoutError("Git repository update timed out")
+        return proc.returncode, stdout, stderr
+
+    # Fetch only the monitored branch and omit file contents until a scan needs them.
+    clone_args = ("clone", "--bare", "--filter=blob:none", "--single-branch", "--branch", default_branch, url, bare_repo_dir)
+    return_code, _, _ = await run_git(*clone_args)
+    if return_code != 0:
         return {"status": "api_error", "commits": []}
 
     if not last_processed_sha:
@@ -116,22 +133,15 @@ async def fetch_missing_commits(
         log_cmd = ["git", "-C", bare_repo_dir, "log", default_branch, "-n", "1", "--format=%H|%s"]
     else:
         # Check if anchor exists
-        check_cmd = ["git", "-C", bare_repo_dir, "cat-file", "-e", f"{last_processed_sha}^{{commit}}"]
-        proc = await asyncio.create_subprocess_exec(
-            *check_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        await proc.communicate()
-        if proc.returncode != 0:
+        return_code, _, _ = await run_git("-C", bare_repo_dir, "cat-file", "-e", f"{last_processed_sha}^{{commit}}")
+        if return_code != 0:
             return {"status": "anchor_not_found", "commits": []}
             
         # Get commits between anchor and HEAD
         log_cmd = ["git", "-C", bare_repo_dir, "log", f"{last_processed_sha}..{default_branch}", "--format=%H|%s"]
 
-    proc = await asyncio.create_subprocess_exec(
-        *log_cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    stdout, _ = await proc.communicate()
-    if proc.returncode != 0:
+    return_code, stdout, _ = await run_git(*log_cmd[1:])
+    if return_code != 0:
         return {"status": "api_error", "commits": []}
 
     commits = []
@@ -165,13 +175,32 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
             canonical_url, owner, repo_name = get_canonical_github_url(repo.url)
             branch = repo.default_branch or "main"
 
-            remote_head = await asyncio.to_thread(resolve_remote_head, f"{canonical_url}.git")
-            if not remote_head:
+            user = (await db.execute(select(User).where(User.id == repo.owner_id))).scalars().first()
+            oauth_token = decrypt_token(user.github_access_token or "") if user else ""
+            remote_state = await asyncio.to_thread(resolve_remote_head, f"{canonical_url}.git", oauth_token)
+            if not remote_state and oauth_token:
+                # Public repositories remain monitorable if a user's GitHub token expires.
+                remote_state = await asyncio.to_thread(resolve_remote_head, f"{canonical_url}.git")
+                if remote_state:
+                    repo.is_public = True
+                oauth_token = ""
+            if not remote_state:
+                if not oauth_token and not repo.is_public:
+                    repo.last_poll_error = "GitHub authentication required for this private repository"
+                    repo.last_polled_at = now
+                    await db.commit()
+                    result["error"] = repo.last_poll_error
+                    return result
                 repo.last_poll_error = "git ls-remote failed"
                 repo.last_polled_at = now
                 await db.commit()
                 result["error"] = "git ls-remote failed"
                 return result
+
+            remote_head, remote_branch = remote_state
+            if remote_branch:
+                branch = remote_branch
+                repo.default_branch = remote_branch
 
             repo.last_seen_sha = remote_head
             repo.last_polled_at = now
@@ -196,10 +225,10 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
                 return result
 
             result["changed"] = True
-            fetch_result = await fetch_missing_commits(owner, repo_name, branch, last_processed_sha, settings.MAX_COMMITS_PER_POLL, bare_repo_dir)
+            fetch_result = await fetch_missing_commits(owner, repo_name, branch, last_processed_sha, settings.MAX_COMMITS_PER_POLL, bare_repo_dir, oauth_token)
             
             if fetch_result["status"] in ("rate_limited", "api_error"):
-                repo.last_poll_error = f"GitHub API: {fetch_result['status']}"
+                repo.last_poll_error = "Git could not fetch repository history"
                 await db.commit()
                 result["error"] = fetch_result["status"]
                 return result
@@ -212,6 +241,7 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
                 return result
 
             missing_commits = fetch_result["commits"]
+            oauth_token = None
             result["commits_discovered"] = len(missing_commits)
 
             for commit_data in missing_commits:
@@ -290,12 +320,12 @@ async def process_one_repository(repo_id: int, semaphore: asyncio.Semaphore, dea
         except Exception as e:
             logger.exception("Error polling repo %s", repo_id)
             try:
-                repo.last_poll_error = str(e)[:200]
+                repo.last_poll_error = "Repository polling failed. Check repository access and try again."
                 repo.monitoring_status = "ERROR"
                 await db.commit()
             except Exception:
                 pass
-            result["error"] = str(e)[:200]
+            result["error"] = repo.last_poll_error
         finally:
             shutil.rmtree(bare_repo_dir, ignore_errors=True)
 
@@ -328,14 +358,18 @@ async def run_polling(request: Request):
             results = []
             
             status = "completed"
-            for repo_id in repo_ids:
+            batch_size = max(1, settings.MAX_CONCURRENT_SCANS)
+            for start in range(0, len(repo_ids), batch_size):
                 if time.time() > deadline:
                     status = "partial"
                     break
-                
-                res = await process_one_repository(repo_id, semaphore, deadline)
-                results.append(res)
-                if res.get("partial"):
+
+                batch = repo_ids[start:start + batch_size]
+                batch_results = await asyncio.gather(*(
+                    process_one_repository(repo_id, semaphore, deadline) for repo_id in batch
+                ))
+                results.extend(batch_results)
+                if any(res.get("partial") for res in batch_results) or time.time() > deadline:
                     status = "partial"
                     break
 
@@ -347,6 +381,12 @@ async def run_polling(request: Request):
                 "commits_queued": sum(r["commits_queued"] for r in results),
                 "errors": sum(1 for r in results if r["error"]),
             }
+            if summary["errors"] and summary["status"] == "completed":
+                summary["status"] = "completed_with_errors"
+            if summary["status"] != "completed":
+                # GitHub Actions and other cron callers must not treat a partial
+                # poll or per-repository failures as a healthy completed run.
+                return JSONResponse(status_code=503, content=summary)
             return summary
 
         finally:

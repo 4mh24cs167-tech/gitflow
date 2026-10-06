@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GitCommit, CheckCircle2, Activity } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiClient } from '../config';
@@ -9,17 +9,28 @@ export default function Dashboard() {
   const [history, setHistory] = useState<{ commit: string; score: number | null; date: string; scoreDelta: number | null; findingsCount?: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [repoError, setRepoError] = useState('');
+  const activeRepoIdRef = useRef(activeRepoId);
+  const historyLoadedRef = useRef(false);
   
   const handleRepoChange = (e: any) => {
     const newId = e.target.value;
+    activeRepoIdRef.current = newId;
+    historyLoadedRef.current = false;
     setActiveRepoId(newId);
     localStorage.setItem('gitflow_active_repo', newId);
   };
 
   useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
     const fetchRepos = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const reposRes = await apiClient.get(`/repositories/`);
+        if (cancelled) return;
+        setRepoError('');
         setRepos(reposRes.data);
         
         if (reposRes.data.length === 0) {
@@ -27,27 +38,47 @@ export default function Dashboard() {
             return;
         }
         
-        let targetId = activeRepoId;
+        let targetId = activeRepoIdRef.current;
         if (!targetId || !reposRes.data.find((r: any) => r.id.toString() === targetId)) {
             targetId = reposRes.data[0].id.toString();
+            activeRepoIdRef.current = targetId;
             setActiveRepoId(targetId);
             localStorage.setItem('gitflow_active_repo', targetId as string);
         }
       } catch (err) {
         console.error("Failed to fetch repos", err);
+        if (!cancelled) setRepoError('Could not load repositories. Check your connection and try again.');
       } finally {
-        setLoading(false);
+        inFlight = false;
+        if (!cancelled) setLoading(false);
       }
     };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') fetchRepos();
+    };
     fetchRepos();
+    const interval = window.setInterval(refreshWhenVisible, 30000);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, []);
 
   useEffect(() => {
     if (!activeRepoId) return;
+    let cancelled = false;
+    let inFlight = false;
     const fetchHistory = async () => {
-      setHistoryLoading(true);
+      if (inFlight) return;
+      inFlight = true;
+      if (!historyLoadedRef.current) setHistoryLoading(true);
       try {
            const historyRes = await apiClient.get(`/repositories/${activeRepoId}/risk-history`);
+           if (cancelled) return;
            const latestHistory = historyRes.data.slice(-50);
            const chartData = latestHistory.map((h: any) => ({
              scanId: h.id,
@@ -63,10 +94,26 @@ export default function Dashboard() {
       } catch (err) {
         console.error("Failed to fetch history", err);
       } finally {
-        setHistoryLoading(false);
+        inFlight = false;
+        if (!cancelled) {
+          historyLoadedRef.current = true;
+          setHistoryLoading(false);
+        }
       }
     };
     fetchHistory();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') fetchHistory();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 30000);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [activeRepoId]);
 
   const stats = [
@@ -130,6 +177,8 @@ export default function Dashboard() {
         <div className="divide-y divide-border-light dark:divide-border-dark">
           {loading ? (
             <div className="p-6 text-center text-slate-500">Loading repositories...</div>
+          ) : repoError ? (
+            <div role="alert" className="p-6 text-center text-red-600 dark:text-red-400">{repoError}</div>
           ) : repos.length === 0 ? (
             <div className="p-6 text-center text-slate-500">No repositories connected. Go to Onboarding.</div>
           ) : (

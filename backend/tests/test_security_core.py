@@ -17,6 +17,29 @@ from app.database.session import AsyncSessionLocal
 
 
 class SecurityCoreTests(unittest.TestCase):
+    def test_production_rejects_default_secrets_and_non_https_origin(self):
+        from types import SimpleNamespace
+        from app.config import validate_security_settings
+
+        defaults = SimpleNamespace(
+            ENVIRONMENT="production",
+            FRONTEND_URL="https://app.example.invalid",
+            SECRET_KEY="your-super-secret-key",
+            GITHUB_WEBHOOK_SECRET="super-secret-webhook-key",
+            GITHUB_TOKEN_ENCRYPTION_KEY="uE2N2wF5bCq-H6sVlqQhM5mZl3fA7xP4V2bJ0rA1h10=",
+            CRON_SECRET="",
+        )
+        with self.assertRaisesRegex(RuntimeError, "SECRET_KEY.*GITHUB_WEBHOOK_SECRET.*GITHUB_TOKEN_ENCRYPTION_KEY.*CRON_SECRET"):
+            validate_security_settings(defaults)
+
+        defaults.SECRET_KEY = "unique-secret"
+        defaults.GITHUB_WEBHOOK_SECRET = "unique-webhook-secret"
+        defaults.GITHUB_TOKEN_ENCRYPTION_KEY = "unique-encryption-key"
+        defaults.CRON_SECRET = "unique-cron-secret"
+        defaults.FRONTEND_URL = "http://app.example.invalid"
+        with self.assertRaisesRegex(RuntimeError, "FRONTEND_URL to use HTTPS"):
+            validate_security_settings(defaults)
+
     def test_webhook_signature_rejects_tampering(self):
         body = b'{"after":"a"}'
         signature = "sha256=" + hmac.new(b"secret", body, hashlib.sha256).hexdigest()
