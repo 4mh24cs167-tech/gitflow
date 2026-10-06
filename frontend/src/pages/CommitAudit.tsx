@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { GitCommit, ShieldAlert, AlertTriangle, FileText, ArrowRight, MessageSquare, Shield, Zap, CheckCircle, Info } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, FileText, Shield, Zap, CheckCircle, Activity } from 'lucide-react';
 import { apiClient } from '../config';
 
 export default function CommitAudit() {
