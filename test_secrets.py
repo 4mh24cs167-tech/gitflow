@@ -1,1 +1,1 @@
-AWS_KEY = "AKIA1234567890ABCDEF"  
+AWS_KEY = os.getenv("AWS_KEY")  
