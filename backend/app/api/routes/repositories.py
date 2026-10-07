@@ -298,6 +298,35 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
                 "score": previous_score
             }
 
+    additions = sum(int(c.get('additions', 0)) for c in changes if str(c.get('additions', '0')).isdigit())
+    deletions = sum(int(c.get('deletions', 0)) for c in changes if str(c.get('deletions', '0')).isdigit())
+    
+    human_summary = f"This commit introduces {len(changes)} file change(s), adding approximately {additions} lines and removing {deletions} lines."
+    if actions_detected:
+        human_summary += f" Overall, the changes appear to include: {', '.join(a.lower() for a in actions_detected)}."
+    
+    new_findings = [f for f in scan.findings if f.status in ("NEW", "BASELINE", None) and (previous_score is not None or f.status == "BASELINE")]
+    if new_findings:
+        worst_severity = max(new_findings, key=lambda x: {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}.get(x.severity, 0)).severity
+        human_summary += f"\n\nFrom a security perspective, {len(new_findings)} new issue(s) were identified in this commit. The highest severity found is {worst_severity}."
+    else:
+        human_summary += "\n\nNo new security issues were introduced by this commit."
+
+    score_explanation = ""
+    if previous_score is None:
+        score_explanation = "This is a baseline scan. No previous risk score is available to compare."
+    elif score_delta == 0:
+        score_explanation = "The security score remained unchanged because no risk-scoring findings were added or resolved between the two completed scans."
+    else:
+        resolved_findings = [f for f in scan.findings if f.status == "RESOLVED"]
+        score_explanation = f"The security score {'decreased' if score_delta < 0 else 'improved'} by {abs(score_delta)} points. "
+        score_explanation += "Risk changed because this commit "
+        reasons = []
+        if new_findings: reasons.append(f"introduced {len(new_findings)} new issue(s)")
+        if resolved_findings: reasons.append(f"resolved {len(resolved_findings)} previous finding(s)")
+        if not reasons: reasons.append("had structural changes affecting risk calculations")
+        score_explanation += " and ".join(reasons) + "."
+
     return {
         "id": scan.id,
         "commit_sha": scan.commit.hash,
@@ -314,6 +343,8 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
         "score_details": json.loads(scan.risk_score.details) if scan.risk_score and scan.risk_score.details else {},
         "previous_commit": previous_commit_obj,
         "actions_detected": actions_detected,
+        "human_summary": human_summary,
+        "score_explanation": score_explanation,
         "error_message": public_scan_error(scan.error_message, scan.id),
         "notifications": [{"id": n.id, "type": n.type, "title": n.title, "message": n.message} for n in notifications]
     }

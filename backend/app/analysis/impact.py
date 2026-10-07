@@ -29,12 +29,42 @@ def analyze_commit_changes(repo_dir: str, current_sha: str) -> List[Dict[str, An
             numstat[path] = {'add': add, 'sub': sub}
 
     results = []
+    
+    # Get unified diff for patch extraction
+    try:
+        full_diff_out = run_git_command(repo_dir, ["git", "diff", "-U3", parent_sha, current_sha])
+    except Exception:
+        full_diff_out = ""
+        
+    # Simple regex to split patches by file
+    import re
+    diffs_by_file = {}
+    if full_diff_out:
+        # Split by 'diff --git '
+        chunks = full_diff_out.split('\ndiff --git ')
+        for i, chunk in enumerate(chunks):
+            if i == 0 and not chunk.startswith('diff --git '): continue
+            chunk_content = ('diff --git ' + chunk) if i > 0 else chunk
+            # Find the b/ filename
+            # e.g. diff --git a/file.txt b/file.txt
+            lines = chunk_content.split('\n')
+            if lines:
+                m = re.match(r'^diff --git a/(.*?) b/(.*)$', lines[0])
+                if m:
+                    file_path = m.group(2)
+                    # truncate huge diffs (e.g. > 1000 lines)
+                    if len(lines) > 1000:
+                        chunk_content = '\n'.join(lines[:1000]) + '\n... [Diff truncated due to size]'
+                    diffs_by_file[file_path] = chunk_content
+    
     for line in status_out.strip().split('\n'):
         if not line: continue
         parts = line.split('\t')
         status = parts[0]
         path = parts[1]
+        old_path = None
         if len(parts) >= 3 and status.startswith('R'): 
+            old_path = parts[1]
             path = parts[2]
             
         lang = os.path.splitext(path)[1]
@@ -42,12 +72,16 @@ def analyze_commit_changes(repo_dir: str, current_sha: str) -> List[Dict[str, An
         adds = numstat.get(path, {}).get('add', '0')
         subs = numstat.get(path, {}).get('sub', '0')
         
+        patch = diffs_by_file.get(path, "")
+        
         results.append({
             "file": path,
+            "old_path": old_path,
             "status": status,
             "language": lang,
             "additions": adds,
-            "deletions": subs
+            "deletions": subs,
+            "patch": patch
         })
         
     return results
