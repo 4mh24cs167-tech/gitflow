@@ -1,2 +1,1 @@
-API_KEY = os.getenv("API_KEY")  
-# harmless 21117  
+API_KEY = "AKIA1234567890"  
