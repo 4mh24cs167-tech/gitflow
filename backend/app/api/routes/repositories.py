@@ -298,22 +298,56 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
                 "score": previous_score
             }
 
-    additions = sum(int(c.get('additions', 0)) for c in changes if str(c.get('additions', '0')).isdigit())
-    deletions = sum(int(c.get('deletions', 0)) for c in changes if str(c.get('deletions', '0')).isdigit())
+    status_map = {"A": "adds", "M": "modifies", "D": "deletes", "R": "renames"}
+    file_actions = {}
+    for c in changes:
+        st = c.get("status", "M")[0]
+        if st not in file_actions: file_actions[st] = []
+        file_actions[st].append(c.get("file", ""))
     
-    human_summary = f"This commit introduces {len(changes)} file change(s), adding approximately {additions} lines and removing {deletions} lines."
+    parts = []
+    for st, verb in [("A", "adds"), ("M", "modifies"), ("D", "deletes"), ("R", "renames")]:
+        if st in file_actions:
+            if len(file_actions[st]) <= 2:
+                parts.append(f"{verb} {', '.join(f'`{f}`' for f in file_actions[st])}")
+            else:
+                parts.append(f"{verb} {len(file_actions[st])} files")
+    
+    human_summary = "This commit " + ", and ".join(parts) + "." if parts else "This commit contains no detectable file changes."
+    
     if actions_detected:
         human_summary += f" Overall, the changes appear to include: {', '.join(a.lower() for a in actions_detected)}."
     
     if previous_score is None:
-        human_summary += "\n\nThis is a baseline scan. All issues present in the repository at this commit are recorded as baseline."
+        human_summary += f"\n\nThis is a baseline scan. All issues present in the repository at this commit are recorded as baseline. The initial score is {current_score}."
     else:
-        new_findings = [f for f in scan.findings if f.status in ("NEW", "BASELINE", None)]
+        new_findings = [f for f in scan.findings if f.status == "NEW"]
+        resolved_findings = [f for f in scan.findings if f.status == "RESOLVED"]
+        
+        finding_desc = ""
         if new_findings:
-            worst_severity = max(new_findings, key=lambda x: {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}.get(x.severity, 0)).severity
-            human_summary += f"\n\nFrom a security perspective, {len(new_findings)} new issue(s) were identified in this commit. The highest severity found is {worst_severity}."
+            worst = max(new_findings, key=lambda x: {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}.get(x.severity, 0))
+            issue_type = worst.type
+            finding_desc = f"It introduces a {worst.severity} {issue_type} finding in `{worst.file_path}`"
+            if worst.line_number: finding_desc += f" on line {worst.line_number}"
+            if len(new_findings) > 1: finding_desc += f", along with {len(new_findings)-1} other new issue(s)."
+            else: finding_desc += "."
+        elif resolved_findings:
+            best = resolved_findings[0]
+            finding_desc = f"It resolves a {best.type} finding in `{best.file_path}`"
+            if len(resolved_findings) > 1: finding_desc += f", along with {len(resolved_findings)-1} other finding(s)."
+            else: finding_desc += "."
         else:
-            human_summary += "\n\nNo new security issues were introduced by this commit."
+            finding_desc = "No new risk-scoring findings were introduced."
+            
+        score_desc = ""
+        if current_score != previous_score and previous_score is not None:
+            direction = "decreased" if current_score < previous_score else "improved"
+            score_desc = f"As a result, the risk score {direction} from {previous_score} to {current_score}."
+        else:
+            score_desc = f"The score remained {current_score}."
+            
+        human_summary += f"\n\n{finding_desc} {score_desc}"
 
     score_explanation = ""
     if previous_score is None:

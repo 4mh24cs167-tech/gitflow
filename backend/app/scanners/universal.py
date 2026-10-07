@@ -18,8 +18,13 @@ MAX_FILE_BYTES = 512 * 1024
 # Allowed licenses for MVP
 ALLOWED_LICENSES = {"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"}
 
-def generate_fingerprint(rule: str, file_path: str, location: str, message: str) -> str:
-    fingerprint_string = f"{rule}:{file_path}:{location}:{message}"
+def generate_fingerprint(category: str, file_path: str, location: str, rule: str, message: str) -> str:
+    if category == "Secret":
+        # For secrets, the underlying issue is the exposure at a specific line.
+        # This prevents overlapping regexes (e.g. AWS Key vs Generic API Key) from generating duplicate findings.
+        fingerprint_string = f"{category}:{file_path}:{location}"
+    else:
+        fingerprint_string = f"{category}:{file_path}:{location}:{rule}:{message}"
     return hashlib.sha256(fingerprint_string.encode('utf-8')).hexdigest()
 
 class UniversalScanner:
@@ -35,7 +40,19 @@ class UniversalScanner:
         return self.findings
         
     def _add_finding(self, rule: str, file_path: str, location: str, message: str, severity: str, category: str):
-        fingerprint = generate_fingerprint(rule, file_path, location, message)
+        fingerprint = generate_fingerprint(category, file_path, location, rule, message)
+        
+        # Deduplicate if the same deterministic identity already exists
+        existing = next((f for f in self.findings if f["fingerprint"] == fingerprint), None)
+        if existing:
+            # If it's the same underlying issue (e.g. Secret on same line), keep the one with higher severity
+            severities = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1, "Informational": 0}
+            if severities.get(severity, 0) > severities.get(existing["severity"], 0):
+                existing["rule"] = rule
+                existing["message"] = message
+                existing["severity"] = severity
+            return
+            
         self.findings.append({
             "fingerprint": fingerprint,
             "rule": rule,
