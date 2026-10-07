@@ -305,18 +305,24 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
     if actions_detected:
         human_summary += f" Overall, the changes appear to include: {', '.join(a.lower() for a in actions_detected)}."
     
-    new_findings = [f for f in scan.findings if f.status in ("NEW", "BASELINE", None) and (previous_score is not None or f.status == "BASELINE")]
-    if new_findings:
-        worst_severity = max(new_findings, key=lambda x: {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}.get(x.severity, 0)).severity
-        human_summary += f"\n\nFrom a security perspective, {len(new_findings)} new issue(s) were identified in this commit. The highest severity found is {worst_severity}."
+    if previous_score is None:
+        human_summary += "\n\nThis is a baseline scan. All issues present in the repository at this commit are recorded as baseline."
     else:
-        human_summary += "\n\nNo new security issues were introduced by this commit."
+        new_findings = [f for f in scan.findings if f.status in ("NEW", "BASELINE", None)]
+        if new_findings:
+            worst_severity = max(new_findings, key=lambda x: {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}.get(x.severity, 0)).severity
+            human_summary += f"\n\nFrom a security perspective, {len(new_findings)} new issue(s) were identified in this commit. The highest severity found is {worst_severity}."
+        else:
+            human_summary += "\n\nNo new security issues were introduced by this commit."
 
     score_explanation = ""
     if previous_score is None:
         score_explanation = "This is a baseline scan. No previous risk score is available to compare."
     elif score_delta == 0:
-        score_explanation = "The security score remained unchanged because no risk-scoring findings were added or resolved between the two completed scans."
+        if new_findings:
+            score_explanation = "The security score remained unchanged, likely because the minimum risk score limit was reached, despite new issues being introduced."
+        else:
+            score_explanation = "The security score remained unchanged because no risk-scoring findings were added or resolved between the two completed scans."
     else:
         resolved_findings = [f for f in scan.findings if f.status == "RESOLVED"]
         score_explanation = f"The security score {'decreased' if score_delta < 0 else 'improved'} by {abs(score_delta)} points. "
