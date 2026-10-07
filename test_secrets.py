@@ -1,1 +1,1 @@
-API_KEY = "AKIA1234567890"  
+API_KEY = os.getenv("API_KEY")  
