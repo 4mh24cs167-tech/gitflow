@@ -129,8 +129,8 @@ async def run_scan(scan_id: int, shared_repo_dir: str = None):
                 actions_detected=json.dumps(actions_detected)
             ))
             
+            from app.database.models import Notification
             if has_sensitive_change:
-                from app.database.models import Notification
                 db.add(Notification(
                     user_id=repo.owner_id,
                     repository_id=repo.id,
