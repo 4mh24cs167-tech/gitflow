@@ -303,13 +303,17 @@ async def get_scan_audit(repository_id: int, scan_id: int, current_user: User = 
     for c in changes:
         st = c.get("status", "M")[0]
         if st not in file_actions: file_actions[st] = []
-        file_actions[st].append(c.get("file", ""))
+        
+        if st == "R" and c.get("old_path"):
+            file_actions[st].append(f"`{c['old_path']}` to `{c['file']}`")
+        else:
+            file_actions[st].append(f"`{c.get('file', '')}`")
     
     parts = []
     for st, verb in [("A", "adds"), ("M", "modifies"), ("D", "deletes"), ("R", "renames")]:
         if st in file_actions:
             if len(file_actions[st]) <= 2:
-                parts.append(f"{verb} {', '.join(f'`{f}`' for f in file_actions[st])}")
+                parts.append(f"{verb} {', '.join(file_actions[st])}")
             else:
                 parts.append(f"{verb} {len(file_actions[st])} files")
     
