@@ -143,6 +143,8 @@ async def run_scan(scan_id: int, shared_repo_dir: str = None):
             for finding in raw_findings:
                 if finding.get("severity", "").upper() in ("CRITICAL", "HIGH"):
                     db.add(Notification(
+                        user_id=repo.owner_id,
+                        repository_id=repo.id,
                         scan_id=scan.id,
                         type="SECURITY_ALERT",
                         title=f"{finding.get('severity')} Risk: {finding.get('category')}",
